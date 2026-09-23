@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* Screen mode: strictly hide all print kop, official headers, and signature footers */
+.print-only {
+  display: none !important;
+}
+
+/* Print mode: display official kop and signatures, hide screen navigation and interactive controls */
+@media print {
+  .print-only {
+    display: block !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  header, aside, nav, button, .no-print {
+    display: none !important;
+  }
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+  table {
+    width: 100% !important;
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 1.2cm;
+  }
+}

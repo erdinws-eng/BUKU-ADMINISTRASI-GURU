@@ -1,0 +1,6 @@
+{
+  "name": "Buku Administrasi Guru",
+  "description": "Aplikasi Buku Administrasi Guru digital untuk manajemen jadwal, absensi harian, jurnal mengajar, penilaian siswa, prota, promes, modul ajar, dan rekap laporan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

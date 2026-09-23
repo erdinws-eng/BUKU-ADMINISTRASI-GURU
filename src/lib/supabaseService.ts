@@ -174,6 +174,25 @@ export async function pushAllToSupabase(payload: SupabaseSyncPayload): Promise<{
       throw new Error(error.message);
     }
 
+    // Juga simpan data siswa secara spesifik agar mudah dilihat di Supabase Table Editor
+    if (payload.siswas) {
+      await supabase
+        .from('app_sync_store')
+        .upsert(
+          {
+            id: 'data_siswas',
+            category: 'master_siswa',
+            payload: {
+              totalSiswa: payload.siswas.length,
+              siswas: payload.siswas,
+              updatedAt: timestamp
+            },
+            updated_at: timestamp
+          },
+          { onConflict: 'id' }
+        );
+    }
+
     // Juga catat log sinkronisasi
     await supabase.from('app_sync_logs').insert({
       event_type: 'PUSH_SNAPSHOT',

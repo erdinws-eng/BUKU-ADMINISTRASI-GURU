@@ -44,6 +44,8 @@ export const SupabaseSettingsCard: React.FC = () => {
     modulAjars,
     lkpds,
     updateSchoolSettings,
+    syncWithSupabase,
+    pullDataFromSupabase,
     showToast,
     showFeedbackModal
   } = useApp();
@@ -95,29 +97,12 @@ export const SupabaseSettingsCard: React.FC = () => {
   const handlePushToSupabase = async () => {
     setIsSyncing(true);
     try {
-      const payload = {
-        schoolSettings,
-        users,
-        gurus,
-        siswas,
-        mapels,
-        jadwals,
-        jurnals,
-        absensis,
-        nilais,
-        protas,
-        promesList,
-        modulAjars,
-        lkpds
-      };
-
-      const result = await pushAllToSupabase(payload);
-      if (result.success) {
-        showToast('success', 'Sinkronisasi Berhasil!', result.message, 4500);
-        // Re-check connection to ensure table state is refreshed
+      const ok = await syncWithSupabase(true);
+      if (ok) {
+        showToast('success', 'Sinkronisasi Berhasil!', 'Seluruh data lokal berhasil disimpan ke Supabase Cloud.', 4500);
         handleTestConnection(true);
       } else {
-        showToast('error', 'Sinkronisasi Gagal', result.message, 6000);
+        showToast('error', 'Sinkronisasi Gagal', 'Gagal mengunggah data ke Supabase Cloud. Periksa koneksi internet.', 6000);
       }
     } catch (err: any) {
       showToast('error', 'Gagal Mengunggah', err.message);
@@ -137,38 +122,16 @@ export const SupabaseSettingsCard: React.FC = () => {
       onConfirm: async () => {
         setIsPulling(true);
         try {
-          const result = await pullAllFromSupabase();
-          if (result.success && result.data) {
-            const d = result.data;
-            if (d.schoolSettings) updateSchoolSettings(d.schoolSettings);
-            // Simpan ke storage melalui reload halus atau notifikasi
-            localStorage.setItem('schoolSettings', JSON.stringify(d.schoolSettings || schoolSettings));
-            if (d.users) localStorage.setItem('users', JSON.stringify(d.users));
-            if (d.gurus) localStorage.setItem('gurus', JSON.stringify(d.gurus));
-            if (d.siswas) localStorage.setItem('siswas', JSON.stringify(d.siswas));
-            if (d.mapels) localStorage.setItem('mapels', JSON.stringify(d.mapels));
-            if (d.jadwals) localStorage.setItem('jadwals', JSON.stringify(d.jadwals));
-            if (d.jurnals) localStorage.setItem('jurnals', JSON.stringify(d.jurnals));
-            if (d.absensis) localStorage.setItem('absensis', JSON.stringify(d.absensis));
-            if (d.nilais) localStorage.setItem('nilais', JSON.stringify(d.nilais));
-            if (d.protas) localStorage.setItem('protas', JSON.stringify(d.protas));
-            if (d.promesList) localStorage.setItem('promesList', JSON.stringify(d.promesList));
-            if (d.modulAjars) localStorage.setItem('modulAjars', JSON.stringify(d.modulAjars));
-            if (d.lkpds) localStorage.setItem('lkpds', JSON.stringify(d.lkpds));
-
+          const ok = await pullDataFromSupabase();
+          if (ok) {
             showToast(
               'success',
               'Data Supabase Dipulihkan!',
-              'Seluruh data berhasil diselaraskan dari database Supabase Cloud. Halaman akan menyegarkan data.',
+              'Seluruh data berhasil diselaraskan dari database Supabase Cloud ke perangkat ini.',
               4000
             );
-
-            // Trigger reload to refresh context from local storage
-            setTimeout(() => {
-              window.location.reload();
-            }, 1200);
           } else {
-            showToast('error', 'Gagal Menarik Data', result.message, 5000);
+            showToast('error', 'Gagal Menarik Data', 'Data di Supabase masih kosong atau belum dapat dijangkau.', 5000);
           }
         } catch (err: any) {
           showToast('error', 'Kesalahan Unduh', err.message);
@@ -444,6 +407,35 @@ export const SupabaseSettingsCard: React.FC = () => {
             <ExternalLink className="h-3.5 w-3.5 text-slate-500" />
             <span>Dasbor</span>
           </a>
+        </div>
+      </div>
+
+      {/* Vercel Deployment & Sync Guide Box */}
+      <div className="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-xs text-slate-700">
+        <div className="flex items-start gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white font-black text-xs">
+            ▲
+          </div>
+          <div className="space-y-1.5 flex-1">
+            <h4 className="font-bold text-indigo-950 flex items-center justify-between">
+              <span>Panduan Sinkronisasi Data ke Domain Vercel</span>
+              <span className="rounded bg-indigo-200/80 text-indigo-800 font-mono text-[10px] px-1.5 py-0.5">Vercel & Supabase</span>
+            </h4>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Penyimpanan browser (<code className="bg-indigo-100/60 px-1 py-0.5 rounded text-indigo-900 font-mono">localStorage</code>) di AI Studio terpisah secara keamanan dengan domain Vercel Anda (<code className="bg-indigo-100/60 px-1 py-0.5 rounded text-indigo-900 font-mono">*.vercel.app</code>). Agar data muncul di Vercel:
+            </p>
+            <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-600">
+              <li>
+                <strong>Di AI Studio ini:</strong> Klik tombol <span className="font-semibold text-emerald-700">"Unggah / Sinkronkan ke Supabase"</span> atau ikon <span className="font-semibold text-emerald-700">Cloud Sync &rarr; Push</span> di navbar atas.
+              </li>
+              <li>
+                <strong>Di Domain Vercel:</strong> Buka web Vercel Anda. Data akan otomatis dimuat dari Supabase. Jika belum muncul, cukup klik <span className="font-semibold text-blue-700">"Tarik dari Cloud (Pull)"</span> di navbar atau di halaman Master Data Siswa.
+              </li>
+              <li>
+                <strong>Environment Variable di Vercel:</strong> Di dashboard Vercel &rarr; <em>Settings &rarr; Environment Variables</em>, pastikan menambahkan <code className="font-mono text-indigo-800">VITE_SUPABASE_URL</code> dan <code className="font-mono text-indigo-800">VITE_SUPABASE_ANON_KEY</code>.
+              </li>
+            </ol>
+          </div>
         </div>
       </div>
 

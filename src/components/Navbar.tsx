@@ -16,7 +16,12 @@ import {
   UserCog,
   Shield,
   GraduationCap,
-  Sparkles
+  Sparkles,
+  Cloud,
+  UploadCloud,
+  DownloadCloud,
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -36,11 +41,16 @@ export const Navbar: React.FC<NavbarProps> = ({ sidebarOpen, setSidebarOpen }) =
     logout,
     switchTeacher,
     resetAllData,
+    supabaseSyncStatus,
+    lastSyncedAt,
+    syncWithSupabase,
+    pullDataFromSupabase,
     showToast,
     showFeedbackModal
   } = useApp();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showCloudMenu, setShowCloudMenu] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const theme = getMenuTheme(activeMenu);
@@ -196,6 +206,110 @@ export const Navbar: React.FC<NavbarProps> = ({ sidebarOpen, setSidebarOpen }) =
             </span>
           </div>
         )}
+
+        {/* Supabase Cloud Quick Sync Status & Action */}
+        <div className="relative">
+          <button
+            id="btn-navbar-cloud-sync"
+            onClick={() => setShowCloudMenu(!showCloudMenu)}
+            className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold shadow-2xs transition cursor-pointer ${
+              supabaseSyncStatus === 'saved'
+                ? 'border-emerald-200 bg-emerald-50/80 text-emerald-800 hover:bg-emerald-100/80'
+                : supabaseSyncStatus === 'syncing'
+                ? 'border-blue-200 bg-blue-50 text-blue-700 animate-pulse'
+                : supabaseSyncStatus === 'error'
+                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+            title="Sinkronisasi Cloud Supabase (Akses lintas domain & Vercel)"
+          >
+            {supabaseSyncStatus === 'syncing' ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-600" />
+            ) : supabaseSyncStatus === 'saved' ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            ) : (
+              <Cloud className="h-3.5 w-3.5 text-slate-500" />
+            )}
+            <span className="hidden sm:inline">
+              {supabaseSyncStatus === 'syncing'
+                ? 'Sinkron...'
+                : supabaseSyncStatus === 'saved'
+                ? 'Cloud Aktif'
+                : 'Cloud Sync'}
+            </span>
+            <ChevronDown className="h-3 w-3 opacity-60" />
+          </button>
+
+          {showCloudMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowCloudMenu(false)} />
+              <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-400/30 z-50 animate-scale-up text-xs">
+                <div className="border-b border-slate-100 pb-2.5 mb-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800">Supabase Cloud Database</span>
+                    <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-bold">Online</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    Sinkronisasi data otomatis antara AI Studio dan domain Vercel.
+                  </p>
+                  {lastSyncedAt && (
+                    <p className="text-[10px] text-emerald-600 mt-1 font-mono font-semibold">
+                      Sinkron terakhir: {lastSyncedAt}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    id="btn-cloud-push-navbar"
+                    onClick={async () => {
+                      setShowCloudMenu(false);
+                      showToast('info', 'Menyinkronkan...', 'Mengunggah seluruh data saat ini ke Supabase Cloud...');
+                      const ok = await syncWithSupabase(true);
+                      if (ok) {
+                        showToast('success', 'Tersimpan di Cloud!', 'Data berhasil diunggah ke Supabase Cloud. Sekarang data siap dibuka di Vercel!');
+                      } else {
+                        showToast('error', 'Gagal Sinkron', 'Tidak dapat terhubung ke Supabase. Periksa internet Anda.');
+                      }
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-900 p-2.5 font-semibold transition cursor-pointer text-left"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shrink-0">
+                      <UploadCloud className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold leading-tight">Unggah ke Cloud (Push)</p>
+                      <span className="text-[10px] text-emerald-700/80 font-normal">Kirim data lokal ini agar muncul di domain Vercel</span>
+                    </div>
+                  </button>
+
+                  <button
+                    id="btn-cloud-pull-navbar"
+                    onClick={async () => {
+                      setShowCloudMenu(false);
+                      showToast('info', 'Mengunduh Data...', 'Menarik data terbaru dari Supabase Cloud...');
+                      const ok = await pullDataFromSupabase();
+                      if (ok) {
+                        showToast('success', 'Data Dipulihkan!', 'Semua data dari Supabase Cloud telah diselaraskan ke browser ini.');
+                      } else {
+                        showToast('error', 'Gagal Menarik Data', 'Data di cloud belum ditemukan atau koneksi gagal.');
+                      }
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-blue-900 p-2.5 font-semibold transition cursor-pointer text-left"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shrink-0">
+                      <DownloadCloud className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold leading-tight">Tarik dari Cloud (Pull)</p>
+                      <span className="text-[10px] text-blue-700/80 font-normal">Muat data dari Supabase ke domain ini (Vercel)</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* User Badge / Dropdown */}
         <div className="relative">

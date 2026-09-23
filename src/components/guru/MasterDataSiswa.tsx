@@ -12,7 +12,11 @@ import {
   GraduationCap,
   FileSpreadsheet,
   Download,
-  Users
+  DownloadCloud,
+  Users,
+  Cloud,
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-react';
 import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
 import { ImportExcelSiswaModal } from '../shared/ImportExcelSiswaModal';
@@ -31,6 +35,10 @@ export const MasterDataSiswa: React.FC = () => {
     updateSiswa,
     deleteSiswa,
     schoolSettings,
+    supabaseSyncStatus,
+    lastSyncedAt,
+    syncWithSupabase,
+    pullDataFromSupabase,
     showToast,
     showFeedbackModal
   } = useApp();
@@ -115,7 +123,7 @@ export const MasterDataSiswa: React.FC = () => {
         gender: formData.gender,
         kelas: formData.kelas
       });
-      showToast('success', 'Data Siswa Diperbarui!', `Data ${formData.nama} kelas ${formData.kelas} berhasil diperbarui.`);
+      showToast('success', 'Data Siswa Diperbarui!', `Data ${formData.nama} disimpan & disinkronkan ke Supabase Cloud.`);
     } else {
       addSiswa({
         nisn: formData.nisn.trim(),
@@ -124,22 +132,29 @@ export const MasterDataSiswa: React.FC = () => {
         kelas: formData.kelas,
         status: 'Aktif'
       });
-      showToast('success', 'Siswa Berhasil Ditambahkan!', `${formData.nama} (NISN: ${formData.nisn || '-'}) terdaftar di kelas ${formData.kelas}.`);
+      showToast('success', 'Siswa Berhasil Ditambahkan!', `${formData.nama} disimpan & disinkronkan ke Supabase Cloud.`);
     }
 
     setShowModal(false);
+    // Langsung dorong ke Supabase
+    setTimeout(() => {
+      syncWithSupabase(true);
+    }, 400);
   };
 
   const handleDelete = (id: string, nama: string) => {
     showFeedbackModal({
       type: 'warning',
       title: 'Hapus Peserta Didik?',
-      message: `Data peserta didik "${nama}" akan dihapus dari data induk kesiswaan.`,
+      message: `Data peserta didik "${nama}" akan dihapus dari data induk kesiswaan dan database Cloud.`,
       confirmText: 'Ya, Hapus Siswa',
       cancelText: 'Batal',
       onConfirm: () => {
         deleteSiswa(id);
-        showToast('info', 'Siswa Dihapus', `Data ${nama} telah dihapus.`);
+        showToast('info', 'Siswa Dihapus', `Data ${nama} telah dihapus & disinkronkan ke Cloud.`);
+        setTimeout(() => {
+          syncWithSupabase(true);
+        }, 400);
       }
     });
   };
@@ -191,6 +206,65 @@ export const MasterDataSiswa: React.FC = () => {
           badge="Kesiswaan"
           actions={
             <div className="flex flex-wrap items-center gap-2">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                id="btn-sync-supabase-siswa"
+                onClick={async () => {
+                  showToast('info', 'Menyinkronkan...', 'Mengunggah data siswa ke Supabase Cloud...');
+                  const ok = await syncWithSupabase(true);
+                  if (ok) {
+                    showToast('success', 'Tersinkron ke Supabase Cloud!', `Data ${siswas.length} siswa tersimpan di cloud Supabase.`);
+                  } else {
+                    showToast('error', 'Gagal Sinkron', 'Tidak dapat menghubungi Supabase. Cek koneksi internet.');
+                  }
+                }}
+                disabled={supabaseSyncStatus === 'syncing'}
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold shadow-xs transition cursor-pointer ${
+                  supabaseSyncStatus === 'saved'
+                    ? 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100/80'
+                    : supabaseSyncStatus === 'syncing'
+                    ? 'border-blue-200 bg-blue-50 text-blue-700 animate-pulse'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                title="Status sinkronisasi Supabase Cloud"
+              >
+                {supabaseSyncStatus === 'syncing' ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                ) : supabaseSyncStatus === 'saved' ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <Cloud className="h-4 w-4 text-slate-500" />
+                )}
+                <span>
+                  {supabaseSyncStatus === 'syncing'
+                    ? 'Menyimpan...'
+                    : supabaseSyncStatus === 'saved'
+                    ? 'Supabase Cloud: Tersimpan'
+                    : 'Sinkron Supabase'}
+                </span>
+                {lastSyncedAt && <span className="text-[10px] text-emerald-600 opacity-75 font-mono">({lastSyncedAt})</span>}
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                id="btn-pull-supabase-siswa"
+                onClick={async () => {
+                  showToast('info', 'Mengunduh Data...', 'Menarik data siswa terbaru dari Supabase Cloud...');
+                  const ok = await pullDataFromSupabase();
+                  if (ok) {
+                    showToast('success', 'Data Diperbarui!', 'Data siswa dari Supabase Cloud berhasil diselaraskan ke browser ini.');
+                  } else {
+                    showToast('error', 'Gagal Menarik Data', 'Data di Supabase masih kosong atau koneksi gagal.');
+                  }
+                }}
+                disabled={supabaseSyncStatus === 'syncing'}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100/80 shadow-xs transition cursor-pointer"
+                title="Tarik data siswa dari database Supabase Cloud (Berguna saat membuka di domain Vercel)"
+              >
+                <DownloadCloud className="h-4 w-4 text-blue-600" />
+                <span>Tarik dari Cloud</span>
+              </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -509,7 +583,10 @@ export const MasterDataSiswa: React.FC = () => {
         availableClasses={availableClasses}
         onApply={(siswaList, replaceForClass) => {
           addSiswaBatch(siswaList, replaceForClass);
-          showToast('success', 'Import Berhasil!', `${siswaList.length} data siswa berhasil disimpan ke database.`);
+          showToast('success', 'Import Berhasil!', `${siswaList.length} data siswa berhasil disimpan & disinkronkan ke Supabase Cloud.`);
+          setTimeout(() => {
+            syncWithSupabase(true);
+          }, 400);
         }}
       />
     </div>

@@ -31,6 +31,7 @@ import {
   initialModulAjars,
   initialLKPDs
 } from '../data/initialData';
+import { pushAllToSupabase, pullAllFromSupabase } from '../lib/supabaseService';
 
 interface AppContextType {
   currentUser: UserAccount | null;
@@ -129,6 +130,12 @@ interface AppContextType {
   // System Utility
   resetAllData: () => void;
 
+  // Supabase Cloud Sync
+  supabaseSyncStatus: 'idle' | 'syncing' | 'saved' | 'error';
+  lastSyncedAt: string | null;
+  syncWithSupabase: (immediate?: boolean) => Promise<boolean>;
+  pullDataFromSupabase: (silent?: boolean) => Promise<boolean>;
+
   // Animated Feedback & Toast System
   toasts: Array<{ id: string; type: 'success' | 'error' | 'warning' | 'loading' | 'info'; title: string; message?: string; duration?: number }>;
   showToast: (type: 'success' | 'error' | 'warning' | 'loading' | 'info', title: string, message?: string, duration?: number) => void;
@@ -172,7 +179,7 @@ try {
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
-    const saved = localStorage.getItem(`BAG_${key}`);
+    const saved = localStorage.getItem(`BAG_${key}`) || localStorage.getItem(key);
     if (saved) {
       return JSON.parse(saved);
     }
@@ -184,7 +191,9 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 
 function saveToStorage<T>(key: string, data: T) {
   try {
-    localStorage.setItem(`BAG_${key}`, JSON.stringify(data));
+    const str = JSON.stringify(data);
+    localStorage.setItem(`BAG_${key}`, str);
+    localStorage.setItem(key, str);
   } catch (err) {
     console.error(`Error saving BAG_${key}:`, err);
   }
@@ -231,6 +240,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   } | null>(null);
   const [isTesterOpen, setIsTesterOpen] = useState(false);
 
+  // Supabase Cloud Sync state
+  const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error'>('idle');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('BAG_lastSyncedAt') || null : null;
+  });
+
   const showToast = (type: 'success' | 'error' | 'warning' | 'loading' | 'info', title: string, message?: string, duration = 3800) => {
     const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     setToasts((prev) => [...prev, { id, type, title, message, duration }]);
@@ -274,6 +289,156 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => saveToStorage('promesList', promesList), [promesList]);
   useEffect(() => saveToStorage('modulAjars', modulAjars), [modulAjars]);
   useEffect(() => saveToStorage('lkpds', lkpds), [lkpds]);
+
+  const isCloudHydrated = React.useRef(false);
+
+  // Synchronize state directly to Supabase Cloud
+  const syncWithSupabase = async (immediate = false): Promise<boolean> => {
+    // Prevent accidental auto-wipe before cloud hydration has finished
+    if (!immediate && !isCloudHydrated.current) {
+      return false;
+    }
+
+    try {
+      setSupabaseSyncStatus('syncing');
+      const payload = {
+        schoolSettings,
+        users,
+        gurus,
+        siswas,
+        mapels,
+        jadwals,
+        jurnals,
+        absensis,
+        nilais,
+        protas,
+        promesList,
+        modulAjars,
+        lkpds
+      };
+
+      const result = await pushAllToSupabase(payload);
+      if (result.success) {
+        setSupabaseSyncStatus('saved');
+        const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        setLastSyncedAt(now);
+        try {
+          localStorage.setItem('BAG_lastSyncedAt', now);
+        } catch (_) {}
+        return true;
+      } else {
+        setSupabaseSyncStatus('error');
+        return false;
+      }
+    } catch (err) {
+      console.error('Auto-sync to Supabase error:', err);
+      setSupabaseSyncStatus('error');
+      return false;
+    }
+  };
+
+  // Pull all data from Supabase and hydrate states & storage
+  const pullDataFromSupabase = async (silent = false): Promise<boolean> => {
+    try {
+      setSupabaseSyncStatus('syncing');
+      const cloud = await pullAllFromSupabase();
+      if (cloud.success && cloud.data) {
+        const d = cloud.data;
+
+        if (Array.isArray(d.siswas) && d.siswas.length > 0) {
+          setSiswas(d.siswas);
+          saveToStorage('siswas', d.siswas);
+        }
+        if (Array.isArray(d.gurus) && d.gurus.length > 0) {
+          setGurus(d.gurus);
+          saveToStorage('gurus', d.gurus);
+        }
+        if (Array.isArray(d.mapels) && d.mapels.length > 0) {
+          setMapels(d.mapels);
+          saveToStorage('mapels', d.mapels);
+        }
+        if (d.schoolSettings && d.schoolSettings.schoolName) {
+          setSchoolSettings(d.schoolSettings);
+          saveToStorage('schoolSettings', d.schoolSettings);
+        }
+        if (Array.isArray(d.users) && d.users.length > 0) {
+          setUsers(d.users);
+          saveToStorage('users', d.users);
+        }
+        if (Array.isArray(d.jadwals) && d.jadwals.length > 0) {
+          setJadwals(d.jadwals);
+          saveToStorage('jadwals', d.jadwals);
+        }
+        if (Array.isArray(d.jurnals) && d.jurnals.length > 0) {
+          setJurnals(d.jurnals);
+          saveToStorage('jurnals', d.jurnals);
+        }
+        if (Array.isArray(d.absensis) && d.absensis.length > 0) {
+          setAbsensis(d.absensis);
+          saveToStorage('absensis', d.absensis);
+        }
+        if (Array.isArray(d.nilais) && d.nilais.length > 0) {
+          setNilais(d.nilais);
+          saveToStorage('nilais', d.nilais);
+        }
+        if (Array.isArray(d.protas) && d.protas.length > 0) {
+          setProtas(d.protas);
+          saveToStorage('protas', d.protas);
+        }
+        if (Array.isArray(d.promesList) && d.promesList.length > 0) {
+          setPromesList(d.promesList);
+          saveToStorage('promesList', d.promesList);
+        }
+        if (Array.isArray(d.modulAjars) && d.modulAjars.length > 0) {
+          setModulAjars(d.modulAjars);
+          saveToStorage('modulAjars', d.modulAjars);
+        }
+        if (Array.isArray(d.lkpds) && d.lkpds.length > 0) {
+          setLkpds(d.lkpds);
+          saveToStorage('lkpds', d.lkpds);
+        }
+
+        setSupabaseSyncStatus('saved');
+        const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        setLastSyncedAt(now);
+        localStorage.setItem('BAG_lastSyncedAt', now);
+        isCloudHydrated.current = true;
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error pulling from Supabase:', err);
+      setSupabaseSyncStatus('error');
+      return false;
+    } finally {
+      isCloudHydrated.current = true;
+    }
+  };
+
+  // Initial load: restore data from Supabase (especially vital for cross-origin domains like Vercel)
+  useEffect(() => {
+    let isMounted = true;
+    pullDataFromSupabase(true).then(() => {
+      if (isMounted) {
+        isCloudHydrated.current = true;
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Debounced auto-sync to Supabase on data changes after initial hydration
+  useEffect(() => {
+    if (!isCloudHydrated.current) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      syncWithSupabase(false);
+    }, 2500);
+
+    return () => clearTimeout(timeout);
+  }, [siswas, gurus, mapels, users, schoolSettings, jadwals, jurnals, absensis, nilais, protas, promesList, modulAjars, lkpds]);
 
   // Isolate currentTeacher strictly per logged-in user when in Guru mode
   const currentTeacher = useMemo(() => {
@@ -784,6 +949,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateLKPD,
         deleteLKPD,
         resetAllData,
+        supabaseSyncStatus,
+        lastSyncedAt,
+        syncWithSupabase,
+        pullDataFromSupabase,
         toasts,
         showToast,
         dismissToast,

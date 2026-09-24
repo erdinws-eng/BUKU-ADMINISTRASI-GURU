@@ -29,8 +29,10 @@ export const AbsensiSiswa: React.FC = () => {
     showFeedbackModal
   } = useApp();
 
-  const availableClasses = currentTeacher?.kelasDiampu || ['7A'];
-  const [selectedClass, setSelectedClass] = useState<string>(availableClasses[0] || '7A');
+  const availableClasses = currentTeacher?.kelasDiampu && currentTeacher.kelasDiampu.length > 0
+    ? currentTeacher.kelasDiampu
+    : ['7A', '7B', '7C', '8A', '8B', '8C', '9A', '9B', '9C'];
+  const [selectedClass, setSelectedClass] = useState<string>('');
   const [tanggal, setTanggal] = useState<string>(new Date().toISOString().slice(0, 10));
   const [jamKe, setJamKe] = useState('1 - 2');
   const [pertemuanKe, setPertemuanKe] = useState(1);
@@ -38,20 +40,27 @@ export const AbsensiSiswa: React.FC = () => {
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Student list for current class
-  const classStudents = siswas.filter((s) => s.kelas === selectedClass);
+  const classStudents = selectedClass ? siswas.filter((s) => s.kelas === selectedClass) : [];
 
   // Attendance state for current session
   const [records, setRecords] = useState<Record<string, { status: StatusKehadiran; keterangan: string }>>({});
 
   // Check if there is already an existing session for this teacher, date, and class
-  const existingSession = absensis.find(
-    (a) =>
-      a.guruId === currentTeacher?.id &&
-      a.kelas === selectedClass &&
-      a.tanggal === tanggal
-  );
+  const existingSession = selectedClass
+    ? absensis.find(
+        (a) =>
+          a.guruId === currentTeacher?.id &&
+          a.kelas === selectedClass &&
+          a.tanggal === tanggal
+      )
+    : undefined;
 
   useEffect(() => {
+    if (!selectedClass) {
+      setRecords({});
+      return;
+    }
+
     if (existingSession) {
       const map: Record<string, { status: StatusKehadiran; keterangan: string }> = {};
       existingSession.records.forEach((r) => {
@@ -79,6 +88,7 @@ export const AbsensiSiswa: React.FC = () => {
   }, [selectedClass, tanggal, existingSession?.id, classStudents.length]);
 
   const handleMarkAllHadir = () => {
+    if (!selectedClass || classStudents.length === 0) return;
     const map: Record<string, { status: StatusKehadiran; keterangan: string }> = {};
     classStudents.forEach((s) => {
       map[s.id] = { status: 'Hadir', keterangan: '' };
@@ -103,9 +113,18 @@ export const AbsensiSiswa: React.FC = () => {
   const countIzin = classStudents.filter((s) => records[s.id]?.status === 'Izin').length;
   const countAlpa = classStudents.filter((s) => records[s.id]?.status === 'Alpa').length;
   const totalCount = classStudents.length || 1;
-  const percentHadir = Math.round((countHadir / totalCount) * 100);
+  const percentHadir = selectedClass ? Math.round((countHadir / totalCount) * 100) : 0;
 
   const handleSaveAbsensi = () => {
+    if (!selectedClass) {
+      showToast('warning', 'Pilih Kelas Terlebih Dahulu', 'Silakan pilih rombongan belajar (kelas) sebelum menyimpan presensi.');
+      return;
+    }
+    if (classStudents.length === 0) {
+      showToast('warning', 'Kelas Kosong', `Tidak ada data peserta didik pada kelas ${selectedClass}.`);
+      return;
+    }
+
     const recordList: AbsensiDetail[] = classStudents.map((s) => ({
       siswaId: s.id,
       status: records[s.id]?.status || 'Hadir',
@@ -143,8 +162,8 @@ export const AbsensiSiswa: React.FC = () => {
   return (
     <div className="space-y-6">
       <PrintHeader
-        title={`DAFTAR PRESENSI & ABSENSI SISWA KELAS ${selectedClass}`}
-        subtitle={`Tanggal: ${tanggal} | Pertemuan Ke-${pertemuanKe} | Mapel: ${currentTeacher?.mapel}`}
+        title={selectedClass ? `DAFTAR PRESENSI & ABSENSI SISWA KELAS ${selectedClass}` : 'DAFTAR PRESENSI & ABSENSI SISWA'}
+        subtitle={`Tanggal: ${tanggal} | Pertemuan Ke-${pertemuanKe} | Mapel: ${currentTeacher?.mapel || ''}`}
       />
 
       {/* Screen Controls with PageHeader */}
@@ -159,7 +178,13 @@ export const AbsensiSiswa: React.FC = () => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 id="btn-print-absensi"
-                onClick={() => printWebDocument({ title: `Presensi Siswa Kelas ${selectedClass}` })}
+                onClick={() => {
+                  if (!selectedClass) {
+                    showToast('warning', 'Pilih Kelas', 'Silakan pilih kelas terlebih dahulu sebelum mencetak presensi.');
+                    return;
+                  }
+                  printWebDocument({ title: `Presensi Siswa Kelas ${selectedClass}` });
+                }}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
               >
                 <Printer className="h-4 w-4 text-slate-500" />
@@ -177,16 +202,21 @@ export const AbsensiSiswa: React.FC = () => {
               </motion.button>
             </div>
           }
-          stats={[
+          stats={selectedClass ? [
             { label: 'Kehadiran Kelas', value: `${percentHadir}%`, helper: `${countHadir} dari ${classStudents.length} siswa` },
             { label: 'Sakit / Izin', value: `${countSakit + countIzin} Siswa`, helper: `S: ${countSakit} | I: ${countIzin}` },
             { label: 'Tanpa Keterangan', value: `${countAlpa} Siswa`, helper: countAlpa > 0 ? 'Perlu konfirmasi' : 'Nihil' },
             { label: 'Pertemuan', value: `Ke-${pertemuanKe}`, helper: `Jam ${jamKe}` }
+          ] : [
+            { label: 'Status Rombel', value: 'Pilih Kelas', helper: 'Belum ada kelas dipilih' },
+            { label: 'Tanggal', value: tanggal, helper: `Pertemuan Ke-${pertemuanKe}` },
+            { label: 'Jam Ke', value: jamKe, helper: 'Sesi tatap muka' },
+            { label: 'Mata Pelajaran', value: currentTeacher?.mapel || 'Mapel', helper: 'Guru pengampu' }
           ]}
         />
       </div>
 
-      {savedSuccess && (
+      {savedSuccess && selectedClass && (
         <div className="no-print flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 border border-emerald-200">
           <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
           <span>Presensi tanggal {tanggal} untuk kelas {selectedClass} berhasil disimpan ke basis data!</span>
@@ -202,8 +232,9 @@ export const AbsensiSiswa: React.FC = () => {
               id="select-kelas-absensi"
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-800 font-semibold focus:border-emerald-500 focus:bg-white focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-800 font-semibold focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer"
             >
+              <option value="">-- Pilih Rombel / Kelas --</option>
               {availableClasses.map((k) => (
                 <option key={k} value={k}>
                   Kelas {k}
@@ -247,118 +278,137 @@ export const AbsensiSiswa: React.FC = () => {
         </div>
 
         {/* Real-time counters & Mark all button */}
-        <div className="mt-4 flex flex-col justify-between gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-semibold text-slate-500">Rekap Sesi Ini:</span>
-            <span className="rounded-md bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700 border border-emerald-200">
-              Hadir: {countHadir}
-            </span>
-            <span className="rounded-md bg-amber-50 px-2 py-0.5 font-bold text-amber-700 border border-amber-200">
-              Sakit: {countSakit}
-            </span>
-            <span className="rounded-md bg-blue-50 px-2 py-0.5 font-bold text-blue-700 border border-blue-200">
-              Izin: {countIzin}
-            </span>
-            <span className="rounded-md bg-rose-50 px-2 py-0.5 font-bold text-rose-700 border border-rose-200">
-              Alpa: {countAlpa}
-            </span>
-            <span className="rounded-md bg-slate-100 px-2 py-0.5 font-bold text-slate-700">
-              Persentase: {percentHadir}%
-            </span>
+        {selectedClass ? (
+          <div className="mt-4 flex flex-col justify-between gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-500">Rekap Sesi Ini:</span>
+              <span className="rounded-md bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700 border border-emerald-200">
+                Hadir: {countHadir}
+              </span>
+              <span className="rounded-md bg-amber-50 px-2 py-0.5 font-bold text-amber-700 border border-amber-200">
+                Sakit: {countSakit}
+              </span>
+              <span className="rounded-md bg-blue-50 px-2 py-0.5 font-bold text-blue-700 border border-blue-200">
+                Izin: {countIzin}
+              </span>
+              <span className="rounded-md bg-rose-50 px-2 py-0.5 font-bold text-rose-700 border border-rose-200">
+                Alpa: {countAlpa}
+              </span>
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 font-bold text-slate-700">
+                Persentase: {percentHadir}%
+              </span>
+            </div>
+
+            <button
+              type="button"
+              id="btn-mark-all-hadir"
+              onClick={handleMarkAllHadir}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+            >
+              <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Tandai Semua Hadir</span>
+            </button>
           </div>
-
-          <button
-            type="button"
-            id="btn-mark-all-hadir"
-            onClick={handleMarkAllHadir}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition"
-          >
-            <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-            <span>Tandai Semua Hadir</span>
-          </button>
-        </div>
+        ) : (
+          <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>Pilih kelas pada dropdown di atas untuk memuat daftar nama siswa dan mengisi presensi.</span>
+          </div>
+        )}
       </div>
 
-      {/* Attendance Table */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-slate-200 bg-slate-50 font-bold uppercase tracking-wider text-slate-600">
-              <tr>
-                <th className="px-4 py-3 text-center">No</th>
-                <th className="px-4 py-3">NISN</th>
-                <th className="px-4 py-3">Nama Peserta Didik</th>
-                <th className="px-4 py-3 text-center">L/P</th>
-                <th className="px-4 py-3 text-center">Status Kehadiran</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {classStudents.length === 0 ? (
+      {/* Attendance Table or Class Selection Prompt */}
+      {!selectedClass ? (
+        <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-12 text-center shadow-xs">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 mb-3 shadow-2xs">
+            <ClipboardCheck className="h-7 w-7" />
+          </div>
+          <h3 className="text-sm font-bold text-slate-800">Silakan Pilih Kelas Terlebih Dahulu</h3>
+          <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+            Daftar nama peserta didik dan pengisian status presensi akan otomatis ditampilkan setelah Anda memilih rombongan belajar (kelas) pada pilihan dropdown di atas.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-50 font-bold uppercase tracking-wider text-slate-600">
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
-                    Tidak ada siswa terdaftar di kelas {selectedClass}.
-                  </td>
+                  <th className="px-4 py-3 text-center">No</th>
+                  <th className="px-4 py-3">NISN</th>
+                  <th className="px-4 py-3">Nama Peserta Didik</th>
+                  <th className="px-4 py-3 text-center">L/P</th>
+                  <th className="px-4 py-3 text-center">Status Kehadiran</th>
                 </tr>
-              ) : (
-                classStudents.map((siswa, index) => {
-                  const currentStatus = records[siswa.id]?.status || 'Hadir';
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {classStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                      Tidak ada siswa terdaftar di kelas {selectedClass}.
+                    </td>
+                  </tr>
+                ) : (
+                  classStudents.map((siswa, index) => {
+                    const currentStatus = records[siswa.id]?.status || 'Hadir';
 
-                  return (
-                    <tr key={siswa.id} className="hover:bg-slate-50/80 transition">
-                      <td className="px-4 py-3 text-center font-semibold text-slate-400">
-                        {index + 1}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                        {siswa.nisn}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-bold text-slate-900">{siswa.nama}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center font-semibold text-slate-600">
-                        {siswa.gender}
-                      </td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap">
-                        {/* Interactive Status Selector Buttons */}
-                        <div className="no-print inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-                          {(['Hadir', 'Sakit', 'Izin', 'Alpa'] as StatusKehadiran[]).map((st) => {
-                            const isSelected = currentStatus === st;
-                            let activeClass = '';
-                            if (isSelected) {
-                              if (st === 'Hadir') activeClass = 'bg-emerald-600 text-white font-bold shadow-xs';
-                              else if (st === 'Sakit') activeClass = 'bg-amber-500 text-white font-bold shadow-xs';
-                              else if (st === 'Izin') activeClass = 'bg-blue-600 text-white font-bold shadow-xs';
-                              else if (st === 'Alpa') activeClass = 'bg-rose-600 text-white font-bold shadow-xs';
-                            } else {
-                              activeClass = 'text-slate-600 hover:text-slate-900';
-                            }
+                    return (
+                      <tr key={siswa.id} className="hover:bg-slate-50/80 transition">
+                        <td className="px-4 py-3 text-center font-semibold text-slate-400">
+                          {index + 1}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                          {siswa.nisn}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-bold text-slate-900">{siswa.nama}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center font-semibold text-slate-600">
+                          {siswa.gender}
+                        </td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          {/* Interactive Status Selector Buttons */}
+                          <div className="no-print inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                            {(['Hadir', 'Sakit', 'Izin', 'Alpa'] as StatusKehadiran[]).map((st) => {
+                              const isSelected = currentStatus === st;
+                              let activeClass = '';
+                              if (isSelected) {
+                                if (st === 'Hadir') activeClass = 'bg-emerald-600 text-white font-bold shadow-xs';
+                                else if (st === 'Sakit') activeClass = 'bg-amber-500 text-white font-bold shadow-xs';
+                                else if (st === 'Izin') activeClass = 'bg-blue-600 text-white font-bold shadow-xs';
+                                else if (st === 'Alpa') activeClass = 'bg-rose-600 text-white font-bold shadow-xs';
+                              } else {
+                                activeClass = 'text-slate-600 hover:text-slate-900';
+                              }
 
-                            return (
-                              <button
-                                key={st}
-                                type="button"
-                                id={`btn-status-${siswa.id}-${st.toLowerCase()}`}
-                                onClick={() => setStudentStatus(siswa.id, st)}
-                                className={`rounded-md px-2.5 py-1 text-xs transition ${activeClass}`}
-                              >
-                                {st.charAt(0)}
-                              </button>
-                            );
-                          })}
-                        </div>
+                              return (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  id={`btn-status-${siswa.id}-${st.toLowerCase()}`}
+                                  onClick={() => setStudentStatus(siswa.id, st)}
+                                  className={`rounded-md px-2.5 py-1 text-xs transition ${activeClass}`}
+                                >
+                                  {st.charAt(0)}
+                                </button>
+                              );
+                            })}
+                          </div>
 
-                        {/* Print Only Badge */}
-                        <span className="print-only font-bold">
-                          {currentStatus}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                          {/* Print Only Badge */}
+                          <span className="print-only font-bold">
+                            {currentStatus}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       <PrintSignatures />
 

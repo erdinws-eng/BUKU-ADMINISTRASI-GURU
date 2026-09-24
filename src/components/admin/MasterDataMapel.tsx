@@ -26,11 +26,13 @@ export const MasterDataMapel: React.FC = () => {
     addMapel,
     updateMapel,
     deleteMapel,
+    deleteAllMapel,
     resetMapelToDefault,
     gurus,
     schoolSettings,
     showToast,
-    showFeedbackModal
+    showFeedbackModal,
+    syncWithSupabase
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -177,6 +179,31 @@ export const MasterDataMapel: React.FC = () => {
     });
   };
 
+  const handleOpenDeleteAll = () => {
+    if (mapels.length === 0) {
+      showToast('warning', 'Data Mapel Kosong', 'Tidak ada data mata pelajaran yang tersimpan di sistem.');
+      return;
+    }
+
+    showFeedbackModal({
+      type: 'warning',
+      title: 'Hapus Seluruh Mata Pelajaran?',
+      message: `PERINGATAN: Anda akan menghapus seluruh (${mapels.length}) data mata pelajaran dari sistem dan database Supabase Cloud. Tindakan ini tidak dapat dibatalkan. Lanjutkan?`,
+      confirmText: `Ya, Hapus Semua (${mapels.length} Mapel)`,
+      cancelText: 'Batalkan',
+      onConfirm: async () => {
+        try {
+          const count = mapels.length;
+          deleteAllMapel();
+          showToast('success', 'Data Mapel Dihapus', `Seluruh mata pelajaran (${count} mapel) berhasil dibersihkan.`);
+          await syncWithSupabase(true);
+        } catch (err: any) {
+          showToast('error', 'Gagal Menghapus', err.message || 'Terjadi kesalahan sistem.');
+        }
+      }
+    });
+  };
+
   // Stats
   const totalMapel = mapels.length;
   const umumMapel = mapels.filter((m) => m.kategori === 'Umum').length;
@@ -232,6 +259,20 @@ export const MasterDataMapel: React.FC = () => {
               >
                 <Printer className="h-4 w-4 text-slate-500" />
                 <span>Cetak Dokumen</span>
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                type="button"
+                id="btn-delete-all-mapel"
+                onClick={handleOpenDeleteAll}
+                disabled={mapels.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 hover:border-rose-300 shadow-2xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Hapus seluruh mata pelajaran dari kurikulum sekolah dan database Supabase Cloud"
+              >
+                <Trash2 className="h-4 w-4 text-rose-600" />
+                <span>Hapus Semua</span>
               </motion.button>
 
               <motion.button

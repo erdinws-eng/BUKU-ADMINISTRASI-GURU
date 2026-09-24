@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   ChevronRight,
   AlertCircle,
+  AlertTriangle,
   Trash2
 } from 'lucide-react';
 import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
@@ -48,6 +49,8 @@ export const NilaiSiswa: React.FC = () => {
     siswas,
     nilais,
     saveNilaiBatch,
+    deleteNilaiByFilter,
+    deleteAllNilai,
     schoolSettings,
     mapels,
     showToast,
@@ -129,7 +132,11 @@ export const NilaiSiswa: React.FC = () => {
     if (!key) return;
     setColumns(newCols);
     try {
-      localStorage.setItem(key, JSON.stringify(newCols));
+      if (newCols.length === 0) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify(newCols));
+      }
     } catch {
       // ignore
     }
@@ -140,6 +147,16 @@ export const NilaiSiswa: React.FC = () => {
     if (!selectedClass) return [];
     return siswas.filter((s) => s.kelas === selectedClass);
   }, [siswas, selectedClass]);
+
+  // Group columns into Formatif and Sumatif
+  const formatifCols = useMemo(() => columns.filter((c) => c.jenis === 'formatif'), [columns]);
+  const sumatifCols = useMemo(() => columns.filter((c) => c.jenis === 'sumatif'), [columns]);
+  const orderedCols = useMemo(() => {
+    if (formatifCols.length > 0 && sumatifCols.length > 0) {
+      return [...formatifCols, ...sumatifCols];
+    }
+    return columns;
+  }, [columns, formatifCols, sumatifCols]);
 
   // Local student scores map: studentId -> { [columnId]: score }
   const [studentScores, setStudentScores] = useState<Record<string, Record<string, number>>>({});
@@ -262,6 +279,79 @@ export const NilaiSiswa: React.FC = () => {
       `Tersimpan ${itemsToSave.length} data nilai kelas ${selectedClass} (${selectedMapel}).`
     );
     setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  // Check if there are any stored grades for this class and mapel in AppContext
+  const hasExistingGrades = useMemo(() => {
+    if (!selectedClass || !selectedMapel) return false;
+    return nilais.some(
+      (n) =>
+        n.kelas === selectedClass &&
+        n.mapel === selectedMapel &&
+        (!n.guruId || !currentTeacher?.id || n.guruId === currentTeacher.id)
+    );
+  }, [nilais, selectedClass, selectedMapel, currentTeacher]);
+
+  // Modal konfirmasi hapus semua nilai
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+
+  // Handler Hapus Semua Nilai (sinkron ke Rekap & Laporan)
+  const handleDeleteAllGrades = (scope: 'class' | 'all') => {
+    if (scope === 'class') {
+      // 1. Kosongkan nilai lokal
+      setStudentScores({});
+
+      // 2. Hapus kolom & localStorage config untuk kelas & mapel ini
+      setColumns([]);
+      if (configStorageKey) {
+        try {
+          localStorage.removeItem(configStorageKey);
+        } catch {
+          // ignore
+        }
+      }
+      try {
+        const prefix = `nilai_cols_${selectedClass}_${selectedMapel}`;
+        Object.keys(localStorage).forEach((k) => {
+          if (k.startsWith(prefix)) {
+            localStorage.removeItem(k);
+          }
+        });
+      } catch {
+        // ignore
+      }
+
+      // 3. Hapus data nilai di AppContext & storage (otomatis tersinkron ke Rekap & Laporan)
+      deleteNilaiByFilter(selectedClass, selectedMapel, selectedSemester);
+
+      showToast(
+        'success',
+        'Nilai Siswa Berhasil Dihapus!',
+        `Semua data nilai kelas ${selectedClass} (${selectedMapel}) telah dihapus dan langsung disinkronkan ke Rekap & Laporan.`
+      );
+    } else {
+      // Hapus seluruh nilai semua kelas
+      setStudentScores({});
+      setColumns([]);
+      try {
+        Object.keys(localStorage).forEach((k) => {
+          if (k.startsWith('nilai_cols_')) {
+            localStorage.removeItem(k);
+          }
+        });
+      } catch {
+        // ignore
+      }
+      deleteAllNilai();
+
+      showToast(
+        'success',
+        'Seluruh Nilai Berhasil Dihapus!',
+        'Semua data penilaian di seluruh kelas dan mata pelajaran telah dibersihkan.'
+      );
+    }
+
+    setShowDeleteConfirmModal(false);
   };
 
   // -------------------------------------------------------------
@@ -552,32 +642,48 @@ export const NilaiSiswa: React.FC = () => {
                 <span>Tambah Kolom Nilai</span>
               </motion.button>
 
-              {isFilterActive && columns.length > 0 && (
+              {isFilterActive && (columns.length > 0 || hasExistingGrades) && (
                 <>
+                  {columns.length > 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      id="btn-save-all-grades"
+                      onClick={handleSaveAll}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-fuchsia-600 bg-fuchsia-50 px-3.5 py-2 text-xs font-bold text-fuchsia-900 hover:bg-fuchsia-100 shadow-xs transition cursor-pointer"
+                    >
+                      <Save className="h-4 w-4 text-fuchsia-700" />
+                      <span>Simpan Semua Nilai</span>
+                    </motion.button>
+                  )}
+                  {columns.length > 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      id="btn-print-nilai"
+                      onClick={() =>
+                        printWebDocument({
+                          title: `Daftar Nilai Siswa Kelas ${selectedClass} - ${selectedMapel}`,
+                          paperOrientation: 'landscape'
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
+                    >
+                      <Printer className="h-4 w-4 text-slate-500" />
+                      <span>Cetak Nilai</span>
+                    </motion.button>
+                  )}
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    id="btn-save-all-grades"
-                    onClick={handleSaveAll}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-fuchsia-600 bg-fuchsia-50 px-3.5 py-2 text-xs font-bold text-fuchsia-900 hover:bg-fuchsia-100 shadow-xs transition cursor-pointer"
+                    id="btn-hapus-semua-nilai"
+                    type="button"
+                    onClick={() => setShowDeleteConfirmModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 shadow-xs transition cursor-pointer"
+                    title="Hapus semua nilai siswa dan kosongkan data"
                   >
-                    <Save className="h-4 w-4 text-fuchsia-700" />
-                    <span>Simpan Semua Nilai</span>
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    id="btn-print-nilai"
-                    onClick={() =>
-                      printWebDocument({
-                        title: `Daftar Nilai Siswa Kelas ${selectedClass} - ${selectedMapel}`,
-                        paperOrientation: 'landscape'
-                      })
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
-                  >
-                    <Printer className="h-4 w-4 text-slate-500" />
-                    <span>Cetak Nilai</span>
+                    <Trash2 className="h-4 w-4 text-rose-600" />
+                    <span>Hapus Semua Nilai</span>
                   </motion.button>
                 </>
               )}
@@ -775,33 +881,87 @@ export const NilaiSiswa: React.FC = () => {
       ) : (
         /* CASE 2B: SUDAH ADA PENILAIAN TERSIMPAN -> TAMPILKAN TABEL PENILAIAN SISWA */
         <div className="space-y-4">
+          <div className="no-print flex flex-wrap items-center justify-between gap-3 px-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800 border border-emerald-200">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Kolom Penilaian Aktif
+              </span>
+              <span className="text-xs text-slate-500">
+                {columns.length} kolom ({columns.filter((c) => c.jenis === 'formatif').length} Formatif, {columns.filter((c) => c.jenis === 'sumatif').length} Sumatif)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-table-hapus-nilai"
+                onClick={() => setShowDeleteConfirmModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+                title="Hapus semua nilai siswa dan kosongkan tabel"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                <span>Hapus Semua Nilai</span>
+              </button>
+            </div>
+          </div>
+
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs border-collapse">
                 <thead className="border-b border-slate-200 bg-slate-50 text-slate-700 font-bold uppercase tracking-wider">
-                  <tr>
-                    <th className="px-3 py-3.5 text-center w-12 border-r border-slate-200">No</th>
-                    <th className="px-3.5 py-3.5 text-left w-36 border-r border-slate-200">NISN</th>
-                    <th className="px-4 py-3.5 text-left min-w-[200px] border-r border-slate-200">Nama Lengkap Siswa</th>
+                  {/* BARIS 1: NO, NISN, NAMA LENGKAP SISWA, PENILAIAN, RATA-RATA, STATUS KKM */}
+                  <tr className="border-b border-slate-200">
+                    <th rowSpan={3} className="px-3 py-3.5 text-center w-12 border-r border-slate-200">No</th>
+                    <th rowSpan={3} className="px-3.5 py-3.5 text-left w-36 border-r border-slate-200">NISN</th>
+                    <th rowSpan={3} className="px-4 py-3.5 text-left min-w-[200px] border-r border-slate-200">Nama Lengkap Siswa</th>
 
-                    {/* Dynamic Assessment Columns */}
-                    {columns.map((col) => (
+                    <th
+                      colSpan={orderedCols.length}
+                      className="px-3 py-2 text-center bg-emerald-50/90 text-emerald-950 border-b border-slate-200 font-extrabold uppercase tracking-wider text-xs"
+                    >
+                      Penilaian
+                    </th>
+
+                    <th rowSpan={3} className="px-3 py-3.5 text-center w-28 bg-emerald-100/60 text-emerald-950 font-bold border-l border-r border-slate-200">
+                      Rata-Rata
+                    </th>
+                    <th rowSpan={3} className="px-3 py-3.5 text-center w-28 bg-slate-100/60 text-slate-900 font-bold">
+                      Status KKM
+                    </th>
+                  </tr>
+
+                  {/* BARIS 2: FORMATIF | SUMATIF */}
+                  <tr className="border-b border-slate-200 text-xs font-bold">
+                    {formatifCols.length > 0 && (
                       <th
-                        key={col.id}
-                        className={`px-3 py-3 text-center min-w-[130px] border-r border-slate-200 ${
-                          col.jenis === 'formatif' ? 'bg-emerald-50/50' : 'bg-blue-50/50'
+                        colSpan={formatifCols.length}
+                        className={`px-3 py-1.5 text-center bg-emerald-100/80 text-emerald-900 border-b border-slate-200 uppercase tracking-wide ${
+                          sumatifCols.length > 0 ? 'border-r' : ''
                         }`}
                       >
+                        FORMATIF
+                      </th>
+                    )}
+                    {sumatifCols.length > 0 && (
+                      <th
+                        colSpan={sumatifCols.length}
+                        className="px-3 py-1.5 text-center bg-blue-100/80 text-blue-900 border-b border-slate-200 uppercase tracking-wide"
+                      >
+                        SUMATIF
+                      </th>
+                    )}
+                  </tr>
+
+                  {/* BARIS 3: NAMA-NAMA PENILAIAN */}
+                  <tr className="border-b border-slate-200 text-[11px]">
+                    {orderedCols.map((col, idx) => (
+                      <th
+                        key={col.id}
+                        className={`px-3 py-2.5 text-center min-w-[130px] ${
+                          idx < orderedCols.length - 1 ? 'border-r border-slate-200' : ''
+                        } ${col.jenis === 'formatif' ? 'bg-emerald-50/40' : 'bg-blue-50/40'}`}
+                      >
                         <div className="flex flex-col items-center gap-1">
-                          <span
-                            className={`inline-block rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                              col.jenis === 'formatif'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-blue-100 text-blue-800'
-                            }`}
-                          >
-                            {col.jenis}
-                          </span>
                           <span className="font-bold text-slate-800 text-[11px] leading-tight line-clamp-2" title={col.nama}>
                             {col.nama}
                           </span>
@@ -809,26 +969,19 @@ export const NilaiSiswa: React.FC = () => {
                             type="button"
                             onClick={() => handleDeleteColumn(col.id)}
                             title="Hapus kolom ini"
-                            className="no-print mt-0.5 text-slate-300 hover:text-rose-500 transition"
+                            className="no-print mt-0.5 text-slate-300 hover:text-rose-500 transition cursor-pointer"
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>
                         </div>
                       </th>
                     ))}
-
-                    <th className="px-3 py-3.5 text-center w-28 bg-emerald-100/60 text-emerald-950 font-bold border-r border-slate-200">
-                      Rata-Rata
-                    </th>
-                    <th className="px-3 py-3.5 text-center w-28 bg-slate-100/60 text-slate-900 font-bold">
-                      Status KKM
-                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {classStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={columns.length + 5} className="py-12 text-center text-xs text-slate-400">
+                      <td colSpan={orderedCols.length + 5} className="py-12 text-center text-xs text-slate-400">
                         Tidak ada peserta didik terdaftar di Kelas {selectedClass}.
                       </td>
                     </tr>
@@ -851,7 +1004,7 @@ export const NilaiSiswa: React.FC = () => {
                           </td>
 
                           {/* Dynamic Assessment Score Inputs */}
-                          {columns.map((col) => {
+                          {orderedCols.map((col) => {
                             const val = scores[col.id];
                             return (
                               <td
@@ -933,47 +1086,48 @@ export const NilaiSiswa: React.FC = () => {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* MODAL: TAMBAH NILAI */}
+      {/* MODAL: TAMBAH PENILAIAN SISWA (ENLARGED & SPACIOUS POP-UP) */}
       {/* Format: Kelas, Jenis Penilaian (formatif/sumatif), Jumlah Penilaian 1-10 */}
-      {/* Ketika memilih jumlah penilaian -> muncul kolom nama penilaian dan kolom penilaian sesuai jumlah */}
       {/* ------------------------------------------------------------------ */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl border border-slate-100 max-h-[92vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="rounded-xl bg-emerald-100 p-2 text-emerald-700">
-                  <PlusCircle className="h-5 w-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 sm:p-6 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-5xl xl:max-w-6xl rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-slate-200 max-h-[94vh] flex flex-col my-auto transition-all animate-scale-up">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-2xs shrink-0">
+                  <PlusCircle className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-800">Tambah Penilaian Siswa</h3>
+                  <h3 className="text-lg font-bold text-slate-800">Tambah Penilaian Siswa</h3>
                   <p className="text-xs text-slate-500">
-                    Konfigurasi penilaian berdasarkan kelas, jenis, dan jumlah penilaian (1-10).
+                    Konfigurasi penilaian berdasarkan mata pelajaran, rombel kelas, jenis (Formatif/Sumatif), dan entri nilai massal peserta didik.
                   </p>
                 </div>
               </div>
               <button
                 id="btn-close-modal-add-nilai"
                 onClick={() => setShowAddModal(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
+                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
+                title="Tutup jendela"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveModalAssessment} className="mt-4 flex-1 flex flex-col overflow-hidden">
-              <div className="space-y-4 pr-1 overflow-y-auto">
-                {/* 1. Format: MATA PELAJARAN, KELAS & JENIS PENILAIAN */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-4 pr-1 overflow-y-auto custom-scrollbar">
+                {/* 1. Configuration Grid: MAPEL, KELAS, JENIS, JUMLAH PENILAIAN */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4">
                   {/* Pilihan Mata Pelajaran */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       1. Mata Pelajaran <span className="text-rose-500">*</span>
                     </label>
                     <select
                       value={modalMapel}
                       onChange={(e) => setModalMapel(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none shadow-2xs"
                     >
                       {availableMapels.map((m) => (
                         <option key={m} value={m}>
@@ -985,17 +1139,17 @@ export const NilaiSiswa: React.FC = () => {
 
                   {/* Pilihan Kelas */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      2. Kelas <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      2. Kelas / Rombel <span className="text-rose-500">*</span>
                     </label>
                     <select
                       value={modalKelas}
                       onChange={(e) => handleModalKelasChange(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none shadow-2xs"
                     >
                       {availableClasses.map((k) => (
                         <option key={k} value={k}>
-                          Kelas {k}
+                          Kelas {k} ({siswas.filter((s) => s.kelas === k).length} Siswa)
                         </option>
                       ))}
                     </select>
@@ -1003,7 +1157,7 @@ export const NilaiSiswa: React.FC = () => {
 
                   {/* Pilihan Jenis Penilaian (Formatif / Sumatif) */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       3. Jenis Penilaian <span className="text-rose-500">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-2">
@@ -1012,8 +1166,8 @@ export const NilaiSiswa: React.FC = () => {
                         onClick={() => handleJenisChange('formatif')}
                         className={`rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 border cursor-pointer ${
                           modalJenis === 'formatif'
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
                         <span>Formatif</span>
@@ -1023,62 +1177,62 @@ export const NilaiSiswa: React.FC = () => {
                         onClick={() => handleJenisChange('sumatif')}
                         className={`rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 border cursor-pointer ${
                           modalJenis === 'sumatif'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
                         <span>Sumatif</span>
                       </button>
                     </div>
                   </div>
+
+                  {/* Pilihan Jumlah Penilaian (1 - 10) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-slate-700">
+                        4. Jumlah Kolom <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[11px] font-bold text-emerald-700">
+                        {modalJumlah} Kolom
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => handleJumlahChange(num)}
+                          className={`h-8 w-8 rounded-lg font-bold text-xs transition cursor-pointer border ${
+                            modalJumlah === num
+                              ? modalJenis === 'formatif'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs scale-105'
+                                : 'bg-blue-600 text-white border-blue-600 shadow-xs scale-105'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
-                {/* 2. Format: JUMLAH PENILAIAN (1 - 10) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700">
-                      4. Jumlah Penilaian (1 - 10) <span className="text-rose-500">*</span>
-                    </label>
-                    <span className="text-[11px] font-semibold text-emerald-700">
-                      Terpilih: {modalJumlah} Kolom Penilaian
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => handleJumlahChange(num)}
-                        className={`h-9 w-9 rounded-xl font-bold text-xs transition cursor-pointer border ${
-                          modalJumlah === num
-                            ? modalJenis === 'formatif'
-                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                              : 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 3. DOKUMEN / KOLOM NAMA PENILAIAN SESUAI JUMLAH */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between">
+                {/* 2. DOKUMEN / KOLOM NAMA PENILAIAN SESUAI JUMLAH */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-b border-slate-100 pb-2">
                     <span className="text-xs font-bold text-slate-800">
-                      Kolom Nama Penilaian ({modalJumlah} Kolom):
+                      Nama / Keterangan Penilaian ({modalJumlah} Kolom Terpilih):
                     </span>
-                    <span className="text-[10px] text-slate-500 italic">
-                      Dapat diubah sesuai nama tugas / ujian Anda
+                    <span className="text-[11px] text-slate-500">
+                      Sesuaikan nama tugas, kuis, latihan, atau TP materi Anda di bawah ini
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
                     {modalAssessmentNames.map((nama, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-600">
-                          {idx + 1}
+                      <div key={idx} className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/60 p-1.5">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 shadow-2xs">
+                          P{idx + 1}
                         </span>
                         <input
                           type="text"
@@ -1093,50 +1247,61 @@ export const NilaiSiswa: React.FC = () => {
                             });
                           }}
                           placeholder={`Nama Penilaian ${idx + 1}`}
-                          className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:border-emerald-500 focus:outline-none"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none"
                         />
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* 4. KOLOM PENILAIAN SISWA SESUAI JUMLAH PENILAIAN */}
-                <div>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                    <label className="text-xs font-bold text-slate-700">
-                      Kolom Penilaian Siswa ({siswas.filter((s) => s.kelas === modalKelas).length} Siswa di Kelas {modalKelas}):
-                    </label>
+                {/* 3. KOLOM PENILAIAN SISWA (LEBAR & LEGA) */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800">
+                        Entri Nilai Peserta Didik — Kelas {modalKelas}
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Total {siswas.filter((s) => s.kelas === modalKelas).length} siswa terdaftar di rombel ini
+                      </p>
+                    </div>
 
-                    {/* Quick fill all */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-slate-500">Nilai Standar:</span>
+                    {/* Quick fill all default score */}
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                      <span className="text-xs font-semibold text-slate-600">Isi Nilai Standar Cepat:</span>
                       <input
                         type="number"
                         min={0}
                         max={100}
                         value={modalDefaultScore}
                         onChange={(e) => setModalDefaultScore(Number(e.target.value))}
-                        className="w-14 rounded-lg border border-slate-300 bg-white px-2 py-0.5 text-center text-xs font-bold focus:border-emerald-500 focus:outline-none"
+                        className="w-16 rounded-lg border border-slate-300 bg-white px-2 py-1 text-center text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none shadow-2xs"
                       />
                       <button
                         type="button"
                         onClick={handleApplyModalDefaultScore}
-                        className="rounded-lg bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-300 transition cursor-pointer"
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white hover:bg-emerald-700 transition cursor-pointer shadow-2xs"
                       >
                         Terapkan ke Semua
                       </button>
                     </div>
                   </div>
 
-                  <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                  {/* Student Table with Expanded Height and Width */}
+                  <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-200 bg-white">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 sticky top-0">
+                      <thead className="bg-slate-50/90 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10 backdrop-blur-xs">
                         <tr>
-                          <th className="px-3 py-2 w-10 text-center">No</th>
-                          <th className="px-3 py-2 min-w-[140px]">Nama Siswa</th>
+                          <th className="px-4 py-2.5 w-12 text-center">No</th>
+                          <th className="px-4 py-2.5 min-w-[200px]">Nama Lengkap Peserta Didik</th>
                           {modalAssessmentNames.map((name, i) => (
-                            <th key={i} className="px-2 py-2 text-center min-w-[70px]" title={name}>
-                              P{i + 1}
+                            <th key={i} className="px-2 py-2.5 text-center min-w-[85px]" title={name}>
+                              <div className="flex flex-col items-center">
+                                <span className="font-extrabold text-emerald-800">P{i + 1}</span>
+                                <span className="text-[10px] font-normal text-slate-500 max-w-[75px] truncate">
+                                  {name || `Penilaian ${i + 1}`}
+                                </span>
+                              </div>
                             </th>
                           ))}
                         </tr>
@@ -1148,11 +1313,13 @@ export const NilaiSiswa: React.FC = () => {
                             const rowScores = modalStudentScores[siswa.id] || [];
 
                             return (
-                              <tr key={siswa.id} className="hover:bg-slate-50">
-                                <td className="px-3 py-1.5 text-center text-slate-400">{idx + 1}</td>
-                                <td className="px-3 py-1.5 font-medium whitespace-nowrap">{siswa.nama}</td>
+                              <tr key={siswa.id} className="hover:bg-emerald-50/30 transition-colors">
+                                <td className="px-4 py-2 text-center text-slate-400 font-medium">{idx + 1}</td>
+                                <td className="px-4 py-2 font-bold text-slate-800 whitespace-nowrap">
+                                  {siswa.nama}
+                                </td>
                                 {modalAssessmentNames.map((_, i) => (
-                                  <td key={i} className="px-1.5 py-1.5 text-center">
+                                  <td key={i} className="px-2 py-1.5 text-center">
                                     <input
                                       type="number"
                                       min={0}
@@ -1171,7 +1338,7 @@ export const NilaiSiswa: React.FC = () => {
                                           };
                                         });
                                       }}
-                                      className="w-14 rounded-md border border-slate-300 px-1 py-0.5 text-center text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
+                                      className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-center text-xs font-extrabold text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-2xs"
                                     />
                                   </td>
                                 ))}
@@ -1184,25 +1351,102 @@ export const NilaiSiswa: React.FC = () => {
                 </div>
               </div>
 
-              {/* Modal Actions */}
-              <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  id="btn-submit-tambah-nilai"
-                  type="submit"
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200 transition cursor-pointer"
-                >
-                  <Save className="h-4 w-4" />
-                  <span>Simpan & Terapkan Penilaian</span>
-                </button>
+              {/* Modal Actions Footer */}
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-slate-100 pt-3">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
+                    Kelas: {modalKelas}
+                  </span>
+                  <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
+                    Jenis: {modalJenis === 'formatif' ? 'Formatif' : 'Sumatif'}
+                  </span>
+                  <span className="rounded-lg bg-emerald-100 px-2.5 py-1 font-bold text-emerald-800">
+                    {modalJumlah} Kolom Penilaian
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="rounded-xl border border-slate-200 px-5 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    id="btn-submit-tambah-nilai"
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition cursor-pointer"
+                  >
+                    <Save className="h-4 w-4" />
+                    <span>Simpan & Terapkan Penilaian</span>
+                  </button>
+                </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL KONFIRMASI HAPUS SEMUA NILAI */}
+      {showDeleteConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  Hapus Semua Nilai Siswa?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Tindakan ini akan menghapus nilai siswa yang telah diinput dan mengosongkan kolom penilaian.
+                  Data di menu <strong>Rekap & Laporan</strong> akan langsung disinkronkan secara otomatis.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900 space-y-1.5">
+              <p className="font-bold flex items-center gap-1.5 text-amber-800">
+                <AlertCircle className="h-4 w-4 shrink-0" /> Informasi Penghapusan & Sinkronisasi:
+              </p>
+              <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-amber-900/90 font-medium">
+                <li>Kelas: <span className="font-bold text-slate-800">{selectedClass || 'Semua'}</span></li>
+                <li>Mata Pelajaran: <span className="font-bold text-slate-800">{selectedMapel || 'Semua'}</span></li>
+                <li>Semester: <span className="font-bold text-slate-800">{selectedSemester}</span></li>
+                <li>Data rekap & leger nilai siswa pada menu Rekap & Laporan akan langsung dikosongkan.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                id="btn-confirm-delete-class-grades"
+                onClick={() => handleDeleteAllGrades('class')}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-700 shadow-sm shadow-rose-200 transition cursor-pointer"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Hapus Nilai Kelas {selectedClass} ({selectedMapel})</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-confirm-delete-all-grades"
+                onClick={() => handleDeleteAllGrades('all')}
+                className="w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50/50 px-4 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+              >
+                <span>Hapus Seluruh Data Nilai (Semua Kelas)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+              >
+                Batal
+              </button>
+            </div>
           </div>
         </div>
       )}

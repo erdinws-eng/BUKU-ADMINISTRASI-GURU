@@ -190,23 +190,6 @@ export const Navbar: React.FC<NavbarProps> = ({ sidebarOpen, setSidebarOpen }) =
 
       {/* Right side: Actions & User Profile */}
       <div className="relative z-10 flex items-center gap-2 sm:gap-2.5">
-        {/* Role Identity Display: Strict Separation */}
-        {!isAdmin ? (
-          <div className="hidden sm:flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-xs font-bold text-emerald-900 shadow-2xs">
-            <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-            <span className="truncate max-w-[140px] md:max-w-[180px]">
-              Panel: {currentTeacher?.nama || currentUser?.name}
-            </span>
-          </div>
-        ) : (
-          <div className="hidden sm:flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-bold text-indigo-900 shadow-2xs">
-            <ShieldCheck className="h-3.5 w-3.5 text-indigo-600" />
-            <span className="truncate max-w-[140px] md:max-w-[180px]">
-              Panel: {currentUser?.adminType || 'Administrator'}
-            </span>
-          </div>
-        )}
-
         {/* Supabase Cloud Quick Sync Status & Action */}
         <div className="relative">
           <button
@@ -237,7 +220,6 @@ export const Navbar: React.FC<NavbarProps> = ({ sidebarOpen, setSidebarOpen }) =
                 ? 'Cloud Aktif'
                 : 'Cloud Sync'}
             </span>
-            <ChevronDown className="h-3 w-3 opacity-60" />
           </button>
 
           {showCloudMenu && (

@@ -34,6 +34,7 @@ export const MasterDataSiswa: React.FC = () => {
     addSiswaBatch,
     updateSiswa,
     deleteSiswa,
+    deleteAllSiswa,
     schoolSettings,
     supabaseSyncStatus,
     lastSyncedAt,
@@ -63,6 +64,7 @@ export const MasterDataSiswa: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showDeleteScopeModal, setShowDeleteScopeModal] = useState(false);
   const [editingSiswa, setEditingSiswa] = useState<Siswa | null>(null);
 
   const [formData, setFormData] = useState({
@@ -191,6 +193,49 @@ export const MasterDataSiswa: React.FC = () => {
     showToast('success', 'Excel Berhasil Diunduh!', `${exportRows.length} data siswa diekspor ke ${fileName}.`);
   };
 
+  const executeDeleteSiswa = (scope: 'all' | 'kelas') => {
+    setShowDeleteScopeModal(false);
+    const isKelasScope = scope === 'kelas' && selectedKelas !== 'SEMUA';
+    const targetCount = isKelasScope ? classStudents.length : siswas.length;
+    const scopeName = isKelasScope ? `Kelas ${selectedKelas}` : 'Seluruh Kelas';
+
+    showFeedbackModal({
+      type: 'warning',
+      title: `Konfirmasi Hapus ${scopeName}?`,
+      message: `PERINGATAN: Anda akan menghapus ${targetCount} data peserta didik (${scopeName}). Data akan dihapus secara permanen dari perangkat dan database Supabase Cloud. Lanjutkan?`,
+      confirmText: `Ya, Hapus ${targetCount} Siswa`,
+      cancelText: 'Batalkan',
+      onConfirm: async () => {
+        try {
+          if (isKelasScope) {
+            deleteAllSiswa(selectedKelas);
+            showToast('success', 'Data Siswa Dihapus', `${targetCount} siswa pada kelas ${selectedKelas} berhasil dihapus.`);
+          } else {
+            deleteAllSiswa();
+            showToast('success', 'Semua Data Siswa Dihapus', `Seluruh data (${targetCount} siswa) berhasil dibersihkan dari database.`);
+          }
+          // Immediate sync to Supabase
+          await syncWithSupabase(true);
+        } catch (err: any) {
+          showToast('error', 'Gagal Menghapus', err.message || 'Terjadi kesalahan sistem.');
+        }
+      }
+    });
+  };
+
+  const handleOpenDeleteAllModal = () => {
+    if (siswas.length === 0) {
+      showToast('warning', 'Data Siswa Kosong', 'Tidak ada data siswa yang tersimpan di sistem.');
+      return;
+    }
+
+    if (selectedKelas !== 'SEMUA') {
+      setShowDeleteScopeModal(true);
+    } else {
+      executeDeleteSiswa('all');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PrintHeader
@@ -206,104 +251,120 @@ export const MasterDataSiswa: React.FC = () => {
           badge="Kesiswaan"
           actions={
             <div className="flex flex-wrap items-center gap-2">
+              {/* Cloud Sync Capsule */}
+              <div className="inline-flex items-center rounded-xl border border-slate-200/90 bg-slate-50/80 p-0.5 shadow-2xs">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  id="btn-sync-supabase-siswa"
+                  onClick={async () => {
+                    showToast('info', 'Menyinkronkan...', 'Mengunggah data siswa ke Supabase Cloud...');
+                    const ok = await syncWithSupabase(true);
+                    if (ok) {
+                      showToast('success', 'Tersinkron ke Supabase Cloud!', `Data ${siswas.length} siswa tersimpan di cloud Supabase.`);
+                    } else {
+                      showToast('error', 'Gagal Sinkron', 'Tidak dapat menghubungi Supabase. Cek koneksi internet.');
+                    }
+                  }}
+                  disabled={supabaseSyncStatus === 'syncing'}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                    supabaseSyncStatus === 'saved'
+                      ? 'bg-emerald-100/90 text-emerald-800'
+                      : supabaseSyncStatus === 'syncing'
+                      ? 'bg-blue-100 text-blue-800 animate-pulse'
+                      : 'text-slate-700 hover:bg-white hover:shadow-2xs'
+                  }`}
+                  title="Simpan & Unggah data siswa ke Supabase Cloud"
+                >
+                  {supabaseSyncStatus === 'syncing' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                  ) : supabaseSyncStatus === 'saved' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <Cloud className="h-3.5 w-3.5 text-slate-500" />
+                  )}
+                  <span>{supabaseSyncStatus === 'syncing' ? 'Menyimpan...' : 'Unggah Cloud'}</span>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  id="btn-pull-supabase-siswa"
+                  onClick={async () => {
+                    showToast('info', 'Mengunduh Data...', 'Menarik data siswa terbaru dari Supabase Cloud...');
+                    const ok = await pullDataFromSupabase();
+                    if (ok) {
+                      showToast('success', 'Data Diperbarui!', 'Data siswa dari Supabase Cloud berhasil diselaraskan ke browser ini.');
+                    } else {
+                      showToast('error', 'Gagal Menarik Data', 'Data di Supabase masih kosong atau koneksi gagal.');
+                    }
+                  }}
+                  disabled={supabaseSyncStatus === 'syncing'}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-white hover:shadow-2xs transition cursor-pointer"
+                  title="Tarik data siswa terbaru dari Supabase Cloud"
+                >
+                  <DownloadCloud className="h-3.5 w-3.5 text-blue-600" />
+                  <span>Tarik Cloud</span>
+                </motion.button>
+              </div>
+
+              {/* Data Tools Capsule: Import, Export, Print */}
+              <div className="inline-flex items-center rounded-xl border border-slate-200/90 bg-white p-0.5 shadow-2xs">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  id="btn-import-excel-siswa"
+                  onClick={() => setShowImportModal(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 shadow-2xs transition cursor-pointer"
+                  title="Impor data siswa massal dari file Microsoft Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>Import Excel</span>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  id="btn-export-excel-siswa"
+                  onClick={handleExportExcel}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                  title="Unduh data siswa ke Excel (.xlsx)"
+                >
+                  <Download className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Export</span>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  id="btn-print-siswa"
+                  onClick={() => printWebDocument({ title: selectedKelas === 'SEMUA' ? 'Daftar Siswa Semua Kelas' : `Daftar Siswa Kelas ${selectedKelas}` })}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                  title="Cetak Buku Induk & Daftar Siswa"
+                >
+                  <Printer className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Cetak</span>
+                </motion.button>
+              </div>
+
+              {/* Delete All Students (Destructive Action) */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                id="btn-sync-supabase-siswa"
-                onClick={async () => {
-                  showToast('info', 'Menyinkronkan...', 'Mengunggah data siswa ke Supabase Cloud...');
-                  const ok = await syncWithSupabase(true);
-                  if (ok) {
-                    showToast('success', 'Tersinkron ke Supabase Cloud!', `Data ${siswas.length} siswa tersimpan di cloud Supabase.`);
-                  } else {
-                    showToast('error', 'Gagal Sinkron', 'Tidak dapat menghubungi Supabase. Cek koneksi internet.');
-                  }
-                }}
-                disabled={supabaseSyncStatus === 'syncing'}
-                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold shadow-xs transition cursor-pointer ${
-                  supabaseSyncStatus === 'saved'
-                    ? 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100/80'
-                    : supabaseSyncStatus === 'syncing'
-                    ? 'border-blue-200 bg-blue-50 text-blue-700 animate-pulse'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-                title="Status sinkronisasi Supabase Cloud"
+                id="btn-delete-all-siswa"
+                onClick={handleOpenDeleteAllModal}
+                disabled={siswas.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 hover:border-rose-300 shadow-2xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Hapus data siswa dari database sistem dan Supabase Cloud"
               >
-                {supabaseSyncStatus === 'syncing' ? (
-                  <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                ) : supabaseSyncStatus === 'saved' ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                ) : (
-                  <Cloud className="h-4 w-4 text-slate-500" />
-                )}
-                <span>
-                  {supabaseSyncStatus === 'syncing'
-                    ? 'Menyimpan...'
-                    : supabaseSyncStatus === 'saved'
-                    ? 'Supabase Cloud: Tersimpan'
-                    : 'Sinkron Supabase'}
-                </span>
-                {lastSyncedAt && <span className="text-[10px] text-emerald-600 opacity-75 font-mono">({lastSyncedAt})</span>}
+                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                <span>Hapus Semua</span>
               </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-pull-supabase-siswa"
-                onClick={async () => {
-                  showToast('info', 'Mengunduh Data...', 'Menarik data siswa terbaru dari Supabase Cloud...');
-                  const ok = await pullDataFromSupabase();
-                  if (ok) {
-                    showToast('success', 'Data Diperbarui!', 'Data siswa dari Supabase Cloud berhasil diselaraskan ke browser ini.');
-                  } else {
-                    showToast('error', 'Gagal Menarik Data', 'Data di Supabase masih kosong atau koneksi gagal.');
-                  }
-                }}
-                disabled={supabaseSyncStatus === 'syncing'}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100/80 shadow-xs transition cursor-pointer"
-                title="Tarik data siswa dari database Supabase Cloud (Berguna saat membuka di domain Vercel)"
-              >
-                <DownloadCloud className="h-4 w-4 text-blue-600" />
-                <span>Tarik dari Cloud</span>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-import-excel-siswa"
-                onClick={() => setShowImportModal(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500 bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 transition cursor-pointer"
-                title="Impor data siswa massal wajib dari berkas Microsoft Excel (.xlsx / .xls)"
-              >
-                <FileSpreadsheet className="h-4 w-4 text-emerald-100" />
-                <span>Import Excel</span>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-export-excel-siswa"
-                onClick={handleExportExcel}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition cursor-pointer"
-                title="Unduh daftar siswa saat ini ke dalam berkas Excel .xlsx"
-              >
-                <Download className="h-4 w-4 text-slate-500" />
-                <span>Export Excel</span>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-print-siswa"
-                onClick={() => printWebDocument({ title: selectedKelas === 'SEMUA' ? 'Daftar Siswa Semua Kelas' : `Daftar Siswa Kelas ${selectedKelas}` })}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition cursor-pointer"
-              >
-                <Printer className="h-4 w-4 text-slate-500" />
-                <span className="hidden sm:inline">Cetak Daftar Siswa</span>
-                <span className="sm:hidden">Cetak</span>
-              </motion.button>
+
+              {/* Add Student (Primary CTA) */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 id="btn-add-siswa"
                 onClick={handleOpenAdd}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-700 px-3.5 py-2 text-xs font-bold text-white hover:from-teal-700 hover:to-emerald-800 shadow-xs transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-700 px-3.5 py-1.5 text-xs font-bold text-white hover:from-teal-700 hover:to-emerald-800 shadow-xs transition cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 <span>Tambah Siswa</span>
@@ -589,6 +650,71 @@ export const MasterDataSiswa: React.FC = () => {
           }, 400);
         }}
       />
+
+      {/* Delete Scope Selection Modal */}
+      {showDeleteScopeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl animate-scale-up">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-100 text-rose-600 shrink-0">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Pilih Cakupan Penghapusan Siswa</h3>
+                <p className="text-xs text-slate-500">
+                  Filter kelas saat ini: <span className="font-bold text-rose-700">Kelas {selectedKelas}</span>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+              Silakan tentukan apakah Anda ingin menghapus hanya siswa di kelas yang sedang dipilih atau mengosongkan seluruh data siswa di sekolah:
+            </p>
+
+            <div className="space-y-2.5 mb-5">
+              <button
+                type="button"
+                id="btn-delete-current-class-only"
+                onClick={() => executeDeleteSiswa('kelas')}
+                className="w-full flex items-center justify-between p-3 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100/70 text-left transition cursor-pointer"
+              >
+                <div>
+                  <p className="text-xs font-bold text-amber-900">Hapus Hanya Siswa Kelas {selectedKelas}</p>
+                  <p className="text-[11px] text-amber-700">Hanya menghapus {classStudents.length} siswa di kelas ini. Kelas lain tetap aman.</p>
+                </div>
+                <span className="rounded-lg bg-amber-200/80 px-2.5 py-1 text-[11px] font-bold text-amber-900 shrink-0 ml-2">
+                  {classStudents.length} Siswa
+                </span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-delete-all-classes"
+                onClick={() => executeDeleteSiswa('all')}
+                className="w-full flex items-center justify-between p-3 rounded-xl border border-rose-300 bg-rose-50/80 hover:bg-rose-100 text-left transition cursor-pointer"
+              >
+                <div>
+                  <p className="text-xs font-bold text-rose-900">Hapus Seluruh Data Siswa (Semua Kelas)</p>
+                  <p className="text-[11px] text-rose-700">Kosongkan total {siswas.length} siswa di seluruh rombongan belajar.</p>
+                </div>
+                <span className="rounded-lg bg-rose-200/90 px-2.5 py-1 text-[11px] font-bold text-rose-900 shrink-0 ml-2">
+                  {siswas.length} Siswa
+                </span>
+              </button>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeleteScopeModal(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+              >
+                Batalkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

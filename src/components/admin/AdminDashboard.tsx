@@ -6,18 +6,14 @@ import {
   Users,
   UserCog,
   GraduationCap,
-  Calendar,
   CheckCircle2,
   Clock,
   Building2,
   ArrowUpRight,
-  BookOpen,
   FileCheck,
   Shield,
   KeyRound,
-  Sparkles,
-  Settings,
-  Image as ImageIcon
+  Sparkles
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
@@ -54,96 +50,6 @@ export const AdminDashboard: React.FC = () => {
           title={schoolSettings.schoolName}
           subtitle={`Tahun Ajaran ${schoolSettings.academicYear} | Semester ${schoolSettings.activeSemester} | ${schoolSettings.curriculum}`}
           badge="Panel Administrator & Kurikulum"
-          actions={
-            <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200/80 bg-slate-50/90 p-1 shadow-2xs backdrop-blur-xs">
-              <motion.button
-                whileHover={{ y: -1, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-admin-goto-users"
-                onClick={() => setActiveMenu('admin-users')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs hover:border-indigo-300 hover:text-indigo-600 transition cursor-pointer"
-                title="Kelola Akun Guru & Administrator"
-              >
-                <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                  <UserCog className="h-3.5 w-3.5" />
-                </div>
-                <span>Kelola Akun</span>
-              </motion.button>
-
-              <motion.button
-                whileHover={{ y: -1, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-admin-goto-guru"
-                onClick={() => setActiveMenu('admin-guru')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs hover:border-emerald-300 hover:text-emerald-600 transition cursor-pointer"
-                title="Master Data Guru & Rombel"
-              >
-                <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                  <Users className="h-3.5 w-3.5" />
-                </div>
-                <span>Data Guru</span>
-              </motion.button>
-
-              <motion.button
-                whileHover={{ y: -1, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-admin-goto-mapel"
-                onClick={() => setActiveMenu('admin-mapel')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs hover:border-sky-300 hover:text-sky-600 transition cursor-pointer"
-                title="Mata Pelajaran Kurikulum"
-              >
-                <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
-                  <BookOpen className="h-3.5 w-3.5" />
-                </div>
-                <span>Mata Pelajaran</span>
-                <span className="rounded-md bg-sky-100/90 px-1.5 py-0.5 text-[10px] font-extrabold text-sky-700">
-                  {mapels.length}
-                </span>
-              </motion.button>
-
-              <motion.button
-                whileHover={{ y: -1, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-admin-goto-jadwal"
-                onClick={() => setActiveMenu('admin-jadwal')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs hover:border-amber-300 hover:text-amber-600 transition cursor-pointer"
-                title="Master Jadwal Pelajaran"
-              >
-                <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                  <Calendar className="h-3.5 w-3.5" />
-                </div>
-                <span>Jadwal</span>
-              </motion.button>
-
-              <motion.button
-                whileHover={{ y: -1, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-admin-goto-logo"
-                onClick={() => setActiveMenu('admin-logo')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3 py-1.5 text-xs font-bold text-indigo-900 shadow-2xs hover:border-indigo-400 hover:bg-indigo-100 transition cursor-pointer"
-                title="Pengaturan Upload Logo Sekolah"
-              >
-                <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-indigo-600 text-white">
-                  <ImageIcon className="h-3.5 w-3.5" />
-                </div>
-                <span>Upload Logo</span>
-              </motion.button>
-
-              <motion.button
-                whileHover={{ y: -1, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                id="btn-admin-goto-settings"
-                onClick={() => setActiveMenu('admin-settings')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs hover:border-slate-400 hover:text-slate-900 transition cursor-pointer"
-                title="Pengaturan Sekolah & Kurikulum"
-              >
-                <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                  <Settings className="h-3.5 w-3.5" />
-                </div>
-                <span>Pengaturan</span>
-              </motion.button>
-            </div>
-          }
           stats={[
             { label: 'Tenaga Pendidik', value: `${activeGurusCount} Aktif`, helper: `${gurus.length} Terdata di sistem` },
             { label: 'Peserta Didik', value: `${siswas.length} Siswa`, helper: `${totalClasses.length} Rombel aktif` },
@@ -224,7 +130,7 @@ export const AdminDashboard: React.FC = () => {
         <motion.div
           whileHover={{ y: -3, scale: 1.01 }}
           whileTap={{ scale: 0.99 }}
-          onClick={() => setActiveMenu('guru-siswa')}
+          onClick={() => setActiveMenu('admin-siswa')}
           className="relative overflow-hidden rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50/90 via-white to-blue-50/60 p-5 shadow-xs hover:shadow-md hover:shadow-sky-500/10 hover:border-sky-300 cursor-pointer transition-all group"
         >
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-sky-500 to-blue-600" />

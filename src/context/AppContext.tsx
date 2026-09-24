@@ -63,6 +63,7 @@ interface AppContextType {
   addMapelBatch: (mapelList: Omit<MataPelajaran, 'id'>[], replaceExisting?: boolean) => void;
   updateMapel: (id: string, mapel: Partial<MataPelajaran>) => void;
   deleteMapel: (id: string) => void;
+  deleteAllMapel: () => void;
   resetMapelToDefault: () => void;
 
   // Guru
@@ -71,6 +72,7 @@ interface AppContextType {
   addGuruBatch: (guruList: Omit<Guru, 'id'>[], replaceExisting?: boolean) => void;
   updateGuru: (id: string, guru: Partial<Guru>) => void;
   deleteGuru: (id: string) => void;
+  deleteAllGuru: () => void;
 
   // Siswa
   siswas: Siswa[];
@@ -78,6 +80,7 @@ interface AppContextType {
   addSiswaBatch: (siswaList: Omit<Siswa, 'id'>[], replaceForClass?: string) => void;
   updateSiswa: (id: string, siswa: Partial<Siswa>) => void;
   deleteSiswa: (id: string) => void;
+  deleteAllSiswa: (kelas?: string) => void;
 
   // Jadwal
   jadwals: JadwalMengajar[];
@@ -100,6 +103,8 @@ interface AppContextType {
   nilais: NilaiSiswaItem[];
   saveNilaiBatch: (items: NilaiSiswaItem[]) => void;
   updateNilai: (id: string, updates: Partial<NilaiSiswaItem>) => void;
+  deleteNilaiByFilter: (kelas: string, mapel?: string, semester?: string) => void;
+  deleteAllNilai: () => void;
 
   // Prota
   protas: ProtaItem[];
@@ -629,6 +634,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMapels((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const deleteAllMapel = () => {
+    setMapels([]);
+    saveToStorage('mapels', []);
+  };
+
   const resetMapelToDefault = () => {
     setMapels(defaultCurriculumMapels);
   };
@@ -666,6 +676,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setGurus((prev) => prev.filter((g) => g.id !== id));
   };
 
+  const deleteAllGuru = () => {
+    setGurus([]);
+    saveToStorage('gurus', []);
+  };
+
   // Siswa handlers
   const addSiswa = (siswaData: Omit<Siswa, 'id'>) => {
     const newSiswa: Siswa = {
@@ -697,6 +712,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteSiswa = (id: string) => {
     setSiswas((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const deleteAllSiswa = (kelas?: string) => {
+    if (kelas && kelas !== 'all') {
+      setSiswas((prev) => {
+        const filtered = prev.filter((s) => s.kelas !== kelas);
+        saveToStorage('siswas', filtered);
+        return filtered;
+      });
+    } else {
+      setSiswas([]);
+      saveToStorage('siswas', []);
+    }
   };
 
   // Jadwal handlers
@@ -770,6 +798,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateNilai = (id: string, updates: Partial<NilaiSiswaItem>) => {
     setNilais((prev) => prev.map((n) => (n.id === id ? { ...n, ...updates } : n)));
+  };
+
+  const deleteNilaiByFilter = (kelas: string, mapel?: string, semester?: string) => {
+    setNilais((prev) => {
+      const filtered = prev.filter((n) => {
+        const matchKelas = n.kelas === kelas;
+        const matchMapel = !mapel || n.mapel === mapel;
+        const matchSemester = !semester || n.semester === semester;
+        return !(matchKelas && matchMapel && matchSemester);
+      });
+      saveToStorage('nilais', filtered);
+      return filtered;
+    });
+  };
+
+  const deleteAllNilai = () => {
+    setNilais([]);
+    saveToStorage('nilais', []);
   };
 
   // Prota handlers
@@ -905,17 +951,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addMapelBatch,
         updateMapel,
         deleteMapel,
+        deleteAllMapel,
         resetMapelToDefault,
         gurus,
         addGuru,
         addGuruBatch,
         updateGuru,
         deleteGuru,
+        deleteAllGuru,
         siswas,
         addSiswa,
         addSiswaBatch,
         updateSiswa,
         deleteSiswa,
+        deleteAllSiswa,
         jadwals,
         addJadwal,
         updateJadwal,
@@ -930,6 +979,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         nilais,
         saveNilaiBatch,
         updateNilai,
+        deleteNilaiByFilter,
+        deleteAllNilai,
         protas,
         addProta,
         addProtaBatch,

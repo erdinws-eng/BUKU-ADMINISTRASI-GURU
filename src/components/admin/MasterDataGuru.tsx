@@ -30,10 +30,12 @@ export const MasterDataGuru: React.FC = () => {
     addGuruBatch,
     updateGuru,
     deleteGuru,
+    deleteAllGuru,
     jadwals,
     mapels,
     showToast,
-    showFeedbackModal
+    showFeedbackModal,
+    syncWithSupabase
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -231,6 +233,31 @@ export const MasterDataGuru: React.FC = () => {
     });
   };
 
+  const handleOpenDeleteAll = () => {
+    if (gurus.length === 0) {
+      showToast('warning', 'Data Guru Kosong', 'Tidak ada data guru yang tersimpan di sistem.');
+      return;
+    }
+
+    showFeedbackModal({
+      type: 'warning',
+      title: 'Hapus Seluruh Data Guru?',
+      message: `PERINGATAN: Anda akan menghapus seluruh (${gurus.length}) data tenaga pendidik secara permanen dari sistem dan Supabase Cloud. Tindakan ini tidak dapat dibatalkan. Lanjutkan?`,
+      confirmText: `Ya, Hapus Semua (${gurus.length} Guru)`,
+      cancelText: 'Batalkan',
+      onConfirm: async () => {
+        try {
+          const count = gurus.length;
+          deleteAllGuru();
+          showToast('success', 'Data Guru Dihapus', `Seluruh data guru (${count} orang) berhasil dibersihkan.`);
+          await syncWithSupabase(true);
+        } catch (err: any) {
+          showToast('error', 'Gagal Menghapus', err.message || 'Terjadi kesalahan sistem.');
+        }
+      }
+    });
+  };
+
   const pnsCount = gurus.filter((g) => g.statusKepegawaian === 'PNS' || g.statusKepegawaian === 'PPPK').length;
   const honorerCount = gurus.filter((g) => g.statusKepegawaian === 'Honor Sekolah' || g.statusKepegawaian === 'GTT').length;
   const activeCount = gurus.filter((g) => g.statusAktif).length;
@@ -269,6 +296,19 @@ export const MasterDataGuru: React.FC = () => {
               >
                 <Printer className="h-4 w-4 text-slate-500" />
                 <span>Cetak Data Guru</span>
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                type="button"
+                id="btn-delete-all-guru"
+                onClick={handleOpenDeleteAll}
+                disabled={gurus.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 hover:border-rose-300 shadow-2xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Hapus seluruh data guru dari sistem dan database Supabase Cloud"
+              >
+                <Trash2 className="h-4 w-4 text-rose-600" />
+                <span>Hapus Semua</span>
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}

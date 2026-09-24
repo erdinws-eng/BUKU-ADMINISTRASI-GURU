@@ -3,10 +3,7 @@ import { useApp } from '../context/AppContext';
 import { getMenuTheme } from '../utils/menuThemes';
 import { motion } from 'motion/react';
 import {
-  Shield,
-  UserCheck,
   ChevronRight,
-  PanelLeftClose,
   LogOut
 } from 'lucide-react';
 
@@ -80,8 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
       items: [
         { id: 'guru-promes', label: 'Program Semester' },
         { id: 'guru-prota', label: 'Program Tahunan' },
-        { id: 'guru-modul', label: 'Modul Ajar & LKPD' },
-        { id: 'guru-siswa', label: 'Master Data Siswa' }
+        { id: 'guru-modul', label: 'Modul Ajar & LKPD' }
       ]
     }
   ];
@@ -118,38 +114,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
       >
         <div className="w-68 min-w-[17rem] flex flex-col justify-between min-h-full">
           <div className="p-3">
-            {/* Header Role Indicator with Collapse Button */}
-            <div className="mb-2.5 rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50 to-slate-100/70 p-2.5 shadow-2xs flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 overflow-hidden flex-1">
-                <div
-                  className={`p-2 rounded-xl text-white shadow-xs shrink-0 ${
-                    isAdmin
-                      ? 'bg-gradient-to-tr from-indigo-700 to-indigo-600'
-                      : 'bg-gradient-to-tr from-emerald-600 to-teal-500'
-                  }`}
-                >
-                  {isAdmin ? <Shield className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                </div>
-                <div className="overflow-hidden flex-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                    {isAdmin ? 'Mode Administrator' : 'Mode Guru Pendidik'}
-                  </span>
-                  <p className="truncate text-xs font-extrabold text-slate-800">
-                    {isAdmin ? 'Tata Usaha / Kurikulum' : currentTeacher?.nama || 'Guru Mapel'}
-                  </p>
-                </div>
-              </div>
-              <button
-                id="btn-sidebar-collapse"
-                onClick={() => setSidebarOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition cursor-pointer shrink-0"
-                title="Tutup / Sembunyikan Sidebar"
-                aria-label="Tutup Sidebar"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            </div>
-
             {/* Grouped Nav List with Distinct Menu Characteristic Colors */}
             <div className="space-y-3.5">
             {menuGroups.map((group, gIdx) => (

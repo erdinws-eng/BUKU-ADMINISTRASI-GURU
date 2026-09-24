@@ -13,6 +13,7 @@ import {
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { MasterDataGuru } from './components/admin/MasterDataGuru';
 import { MasterDataMapel } from './components/admin/MasterDataMapel';
+import { MasterDataSiswa } from './components/admin/MasterDataSiswa';
 import { PengaturanAplikasi } from './components/admin/PengaturanAplikasi';
 import { ManajemenAkun } from './components/admin/ManajemenAkun';
 
@@ -26,7 +27,6 @@ import { RekapLaporan } from './components/guru/RekapLaporan';
 import { ProgramSemester } from './components/guru/ProgramSemester';
 import { ProgramTahunan } from './components/guru/ProgramTahunan';
 import { ModulAjarLKPD } from './components/guru/ModulAjarLKPD';
-import { MasterDataSiswa } from './components/guru/MasterDataSiswa';
 
 const AppContent: React.FC = () => {
   const {

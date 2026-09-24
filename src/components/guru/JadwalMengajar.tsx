@@ -35,6 +35,8 @@ export const JadwalMengajar: React.FC = () => {
     currentUser,
     currentTeacher,
     gurus,
+    mapels,
+    siswas,
     jadwals,
     addJadwal,
     updateJadwal,
@@ -127,17 +129,79 @@ export const JadwalMengajar: React.FC = () => {
 
   const todaySessions = statsJadwals.filter((j) => j.hari === todayHighlight);
 
+  // Derivations for Add/Edit Modal (dropdowns & automatic adjustment)
+  const currentFormGuru = gurus.find((g) => g.id === formData.guruId);
+  const currentGuruMapels = Array.from(
+    new Set([
+      ...(currentFormGuru?.mapelList || []),
+      ...(currentFormGuru?.mapel ? currentFormGuru.mapel.split(',').map((s) => s.trim()) : [])
+    ].filter(Boolean))
+  );
+  const currentGuruClasses = currentFormGuru?.kelasDiampu || [];
+
+  const allSystemClasses = Array.from(
+    new Set([
+      '7A', '7B', '7C', '8A', '8B', '8C', '9A', '9B', '9C',
+      ...currentGuruClasses,
+      ...gurus.flatMap((g) => g.kelasDiampu || []),
+      ...siswas.map((s) => s.kelas),
+      ...jadwals.map((j) => j.kelas),
+      ...(formData.kelas ? [formData.kelas] : [])
+    ].filter(Boolean))
+  ).sort();
+  const otherClasses = allSystemClasses.filter((c) => !currentGuruClasses.includes(c));
+
+  // Pilihan mapel disesuaikan khusus dengan yang diampu oleh guru pengampu
+  const teacherMapelOptions = Array.from(
+    new Set([
+      ...currentGuruMapels,
+      ...(formData.mapel ? [formData.mapel] : [])
+    ].filter(Boolean))
+  );
+  const finalMapelOptions = teacherMapelOptions.length > 0
+    ? teacherMapelOptions
+    : (mapels.length > 0 ? mapels.map((m) => m.nama) : ['Matematika']);
+
+  // Parser waktu rentang digital HH:MM - HH:MM
+  const parseDigitalTime = (waktuStr: string) => {
+    if (!waktuStr) return { start: '07:30', end: '09:00' };
+    const parts = waktuStr.split('-').map((s) => s.trim().replace('.', ':'));
+
+    const sanitizeTime = (val: string | undefined, fallback: string) => {
+      if (!val) return fallback;
+      const clean = val.replace(/[^0-9:]/g, '');
+      const segments = clean.split(':');
+      if (segments.length >= 2) {
+        const hh = segments[0].padStart(2, '0').slice(-2);
+        const mm = segments[1].padStart(2, '0').slice(0, 2);
+        return `${hh}:${mm}`;
+      }
+      return fallback;
+    };
+
+    return {
+      start: sanitizeTime(parts[0], '07:30'),
+      end: sanitizeTime(parts[1], '09:00')
+    };
+  };
+
+  const digitalTime = parseDigitalTime(formData.waktu);
+
   const handleOpenAdd = (defaultHari?: IJadwal['hari'], defaultJam?: string) => {
     setEditingJadwal(null);
     const targetGuru = gurus.find((g) => g.id === (targetTeacherId || currentTeacher?.id)) || gurus[0];
+    const targetGuruMapels = (targetGuru?.mapelList && targetGuru.mapelList.length > 0)
+      ? targetGuru.mapelList
+      : (targetGuru?.mapel ? targetGuru.mapel.split(',').map((s) => s.trim()).filter(Boolean) : []);
     const defaultKelas = targetGuru?.kelasDiampu?.[0] || '7A';
+    const defaultMapel = targetGuruMapels[0] || targetGuru?.mapel || mapels[0]?.nama || 'Matematika';
     setFormData({
       guruId: targetGuru?.id || 'guru-1',
       hari: defaultHari || (todayHighlight as IJadwal['hari']) || 'Senin',
       jamKe: defaultJam || '1 - 2',
-      waktu: defaultJam === '3 - 4' ? '09.15 - 10.45' : '07.30 - 09.00',
+      waktu: defaultJam === '3 - 4' ? '09:15 - 10:45' : '07:30 - 09:00',
       kelas: defaultKelas,
-      mapel: targetGuru?.mapel || 'Mata Pelajaran',
+      mapel: defaultMapel,
       ruang: `R. Kelas ${defaultKelas}`
     });
     setShowModal(true);
@@ -1455,17 +1519,28 @@ export const JadwalMengajar: React.FC = () => {
                     Guru Pengampu & Mata Pelajaran
                   </label>
                   <select
+                    id="select-jadwal-guru"
                     value={formData.guruId}
                     onChange={(e) => {
-                      const selGuru = gurus.find((g) => g.id === e.target.value);
+                      const newGuruId = e.target.value;
+                      const selGuru = gurus.find((g) => g.id === newGuruId);
+                      const selGuruMapels = Array.from(
+                        new Set([
+                          ...(selGuru?.mapelList || []),
+                          ...(selGuru?.mapel ? selGuru.mapel.split(',').map((s) => s.trim()) : [])
+                        ].filter(Boolean))
+                      );
+                      const newMapel = selGuruMapels[0] || selGuru?.mapel || mapels[0]?.nama || 'Matematika';
+                      const newKelas = selGuru?.kelasDiampu?.[0] || allSystemClasses[0] || '7A';
                       setFormData({
                         ...formData,
-                        guruId: e.target.value,
-                        mapel: selGuru?.mapel || formData.mapel,
-                        kelas: selGuru?.kelasDiampu[0] || formData.kelas
+                        guruId: newGuruId,
+                        mapel: newMapel,
+                        kelas: newKelas,
+                        ruang: `R. Kelas ${newKelas}`
                       });
                     }}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none cursor-pointer"
                   >
                     {gurus.map((g) => (
                       <option key={g.id} value={g.id}>
@@ -1484,7 +1559,7 @@ export const JadwalMengajar: React.FC = () => {
                     <select
                       value={formData.hari}
                       onChange={(e) => setFormData({ ...formData, hari: e.target.value as IJadwal['hari'] })}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none cursor-pointer"
                     >
                       {daysList.map((d) => (
                         <option key={d} value={d}>
@@ -1499,20 +1574,37 @@ export const JadwalMengajar: React.FC = () => {
                     <label className="mb-1 block text-xs font-semibold text-slate-700">
                       Rombongan Belajar (Kelas)
                     </label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: 7A, 7B, 8A"
+                    <select
+                      id="select-jadwal-kelas"
                       value={formData.kelas}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const newKelas = e.target.value;
                         setFormData({
                           ...formData,
-                          kelas: e.target.value,
-                          ruang: formData.ruang.startsWith('R. Kelas') ? `R. Kelas ${e.target.value}` : formData.ruang
-                        })
-                      }
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
+                          kelas: newKelas,
+                          ruang: formData.ruang.startsWith('R. Kelas') || !formData.ruang ? `R. Kelas ${newKelas}` : formData.ruang
+                        });
+                      }}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none cursor-pointer"
                       required
-                    />
+                    >
+                      {currentGuruClasses.length > 0 && (
+                        <optgroup label={`Kelas Binaan: ${currentFormGuru?.nama || 'Guru'}`}>
+                          {currentGuruClasses.map((k) => (
+                            <option key={`guru-cls-${k}`} value={k}>
+                              Kelas {k} (Diampu Guru)
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Semua Rombel Sekolah">
+                        {otherClasses.map((k) => (
+                          <option key={`other-cls-${k}`} value={k}>
+                            Kelas {k}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
                   </div>
                 </div>
 
@@ -1535,32 +1627,73 @@ export const JadwalMengajar: React.FC = () => {
                   {/* Waktu */}
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-slate-700">
-                      Rentang Waktu (WIB)
+                      Rentang Waktu
                     </label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: 07.30 - 09.00"
-                      value={formData.waktu}
-                      onChange={(e) => setFormData({ ...formData, waktu: e.target.value })}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
-                      required
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <div className="relative flex-1">
+                        <input
+                          id="input-jadwal-waktu-mulai"
+                          type="time"
+                          value={digitalTime.start}
+                          onChange={(e) => {
+                            const newStart = e.target.value || '07:30';
+                            setFormData({ ...formData, waktu: `${newStart} - ${digitalTime.end}` });
+                          }}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-mono font-bold text-slate-800 focus:border-emerald-500 focus:outline-none cursor-pointer text-center"
+                          required
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-slate-400">s/d</span>
+                      <div className="relative flex-1">
+                        <input
+                          id="input-jadwal-waktu-selesai"
+                          type="time"
+                          value={digitalTime.end}
+                          onChange={(e) => {
+                            const newEnd = e.target.value || '09:00';
+                            setFormData({ ...formData, waktu: `${digitalTime.start} - ${newEnd}` });
+                          }}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-mono font-bold text-slate-800 focus:border-emerald-500 focus:outline-none cursor-pointer text-center"
+                          required
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   {/* Mata Pelajaran */}
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-700">
-                      Mata Pelajaran
-                    </label>
-                    <input
-                      type="text"
+                    <div className="mb-1 flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Mata Pelajaran
+                      </label>
+                      {currentFormGuru && (
+                        <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          Sesuai Guru Pengampu
+                        </span>
+                      )}
+                    </div>
+                    <select
+                      id="select-jadwal-mapel"
                       value={formData.mapel}
                       onChange={(e) => setFormData({ ...formData, mapel: e.target.value })}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none cursor-pointer"
                       required
-                    />
+                    >
+                      {finalMapelOptions.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    {currentFormGuru && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {finalMapelOptions.length > 1
+                          ? `Pilihan ${finalMapelOptions.length} mapel binaan ${currentFormGuru.nama}`
+                          : `Mapel binaan ${currentFormGuru.nama}`}
+                      </p>
+                    )}
                   </div>
 
                   {/* Ruang */}

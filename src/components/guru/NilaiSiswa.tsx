@@ -250,12 +250,24 @@ export const NilaiSiswa: React.FC = () => {
           (!n.guruId || !currentTeacher?.id || n.guruId === currentTeacher.id)
       );
 
-      // Map back to formatif/sts/sas for compatibility with reports
-      const f1 = scores['formatif1'] ?? (columns[0] ? scores[columns[0].id] : 0) ?? 0;
-      const f2 = scores['formatif2'] ?? (columns[1] ? scores[columns[1].id] : f1) ?? 0;
-      const f3 = scores['formatif3'] ?? (columns[2] ? scores[columns[2].id] : f2) ?? 0;
-      const stsVal = scores['sts'] ?? (columns.find((c) => c.jenis === 'sumatif') ? scores[columns.find((c) => c.jenis === 'sumatif')!.id] : 0) ?? 0;
-      const sasVal = scores['sas'] ?? stsVal ?? 0;
+      // Filter explicitly by assessment type
+      const formatifCols = columns.filter((c) => c.jenis === 'formatif');
+      const sumatifCols = columns.filter((c) => c.jenis === 'sumatif');
+
+      // Map back to formatif/sts/sas ONLY from respective types
+      const f1 = formatifCols.length > 0 ? (scores[formatifCols[0].id] ?? 0) : 0;
+      const f2 = formatifCols.length > 1 ? (scores[formatifCols[1].id] ?? 0) : 0;
+      const f3 = formatifCols.length > 2 ? (scores[formatifCols[2].id] ?? 0) : 0;
+      const stsVal = sumatifCols.length > 0 ? (scores[sumatifCols[0].id] ?? 0) : 0;
+      const sasVal = sumatifCols.length > 1 ? (scores[sumatifCols[1].id] ?? 0) : stsVal;
+
+      // Only preserve customScores for columns that are actually active
+      const filteredCustomScores: Record<string, number> = {};
+      columns.forEach((col) => {
+        if (scores[col.id] !== undefined) {
+          filteredCustomScores[col.id] = scores[col.id];
+        }
+      });
 
       return {
         id: existing ? existing.id : `nil-${student.id}-${Date.now()}`,
@@ -270,7 +282,7 @@ export const NilaiSiswa: React.FC = () => {
         formatif3: f3,
         sts: stsVal,
         sas: sasVal,
-        customScores: scores
+        customScores: filteredCustomScores
       };
     });
 
@@ -677,11 +689,23 @@ export const NilaiSiswa: React.FC = () => {
         currentCustom[col.id] = val;
       });
 
-      const f1 = currentCustom['formatif1'] ?? (newAddedCols[0] ? currentCustom[newAddedCols[0].id] : 0);
-      const f2 = currentCustom['formatif2'] ?? (newAddedCols[1] ? currentCustom[newAddedCols[1].id] : f1);
-      const f3 = currentCustom['formatif3'] ?? (newAddedCols[2] ? currentCustom[newAddedCols[2].id] : f2);
-      const sts = currentCustom['sts'] ?? (newAddedCols.find((c) => c.jenis === 'sumatif') ? currentCustom[newAddedCols.find((c) => c.jenis === 'sumatif')!.id] : 0);
-      const sas = currentCustom['sas'] ?? sts;
+      const allActiveCols = combinedCols;
+      const formatifCols = allActiveCols.filter((c: any) => c.jenis === 'formatif');
+      const sumatifCols = allActiveCols.filter((c: any) => c.jenis === 'sumatif');
+
+      const f1 = formatifCols.length > 0 ? (currentCustom[formatifCols[0].id] ?? 0) : 0;
+      const f2 = formatifCols.length > 1 ? (currentCustom[formatifCols[1].id] ?? 0) : 0;
+      const f3 = formatifCols.length > 2 ? (currentCustom[formatifCols[2].id] ?? 0) : 0;
+      const sts = sumatifCols.length > 0 ? (currentCustom[sumatifCols[0].id] ?? 0) : 0;
+      const sas = sumatifCols.length > 1 ? (currentCustom[sumatifCols[1].id] ?? 0) : sts;
+
+      // Only keep scores for allActiveCols to avoid residual orphaned scores
+      const filteredCustom: Record<string, number> = {};
+      allActiveCols.forEach((col) => {
+        if (currentCustom[col.id] !== undefined) {
+          filteredCustom[col.id] = currentCustom[col.id];
+        }
+      });
 
       return {
         id: existing ? existing.id : `nil-${student.id}-${Date.now()}`,
@@ -695,7 +719,7 @@ export const NilaiSiswa: React.FC = () => {
         formatif3: f3,
         sts: sts,
         sas: sas,
-        customScores: currentCustom
+        customScores: filteredCustom
       };
     });
 

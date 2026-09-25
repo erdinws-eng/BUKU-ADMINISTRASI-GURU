@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { useApp } from '../../context/AppContext';
 import { NilaiSiswaItem } from '../../types';
 import {
@@ -15,7 +16,9 @@ import {
   ChevronRight,
   AlertCircle,
   AlertTriangle,
-  Trash2
+  Trash2,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
 import { printWebDocument } from '../../utils/printHelper';
@@ -279,6 +282,142 @@ export const NilaiSiswa: React.FC = () => {
       `Tersimpan ${itemsToSave.length} data nilai kelas ${selectedClass} (${selectedMapel}).`
     );
     setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  // Handler Ekspor Leger Nilai ke Excel (.xlsx resmi - bukan CSV)
+  const handleExportExcel = () => {
+    if (!selectedClass || !selectedMapel || columns.length === 0) {
+      showToast('warning', 'Belum Ada Penilaian', 'Silakan tentukan kolom penilaian dan simpan nilai terlebih dahulu sebelum mengekspor.');
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+      const rows: any[][] = [];
+
+      // Kop & Informasi Laporan
+      rows.push([schoolSettings.schoolName.toUpperCase()]);
+      rows.push([`LAPORAN LEGER PENILAIAN SISWA KELAS ${selectedClass}`]);
+      rows.push([`Mata Pelajaran: ${selectedMapel} | Semester: ${selectedSemester} | Tahun Ajaran: ${schoolSettings.academicYear}`]);
+      rows.push([`Guru Pengampu: ${currentTeacher?.nama || '-'} (NIP. ${currentTeacher?.nip || '-'})`]);
+      rows.push([`KKM Ketuntasan: ${schoolSettings.kkmDefault} | Tanggal Unduh: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'long' })}`]);
+      rows.push([]);
+
+      // Baris 1: No, NISN, Nama Lengkap Siswa, PENILAIAN (merged), Rata-Rata, Status KKM
+      const row1: any[] = ['No', 'NISN', 'Nama Lengkap Siswa'];
+      row1.push('PENILAIAN');
+      for (let i = 1; i < orderedCols.length; i++) {
+        row1.push('');
+      }
+      row1.push('Rata-Rata');
+      row1.push('Status KKM');
+      rows.push(row1);
+
+      // Baris 2: Blank for No/NISN/Nama, FORMATIF (merged), SUMATIF (merged), blank for Rata-rata/Status
+      const row2: any[] = ['', '', ''];
+      if (formatifCols.length > 0) {
+        row2.push('FORMATIF');
+        for (let i = 1; i < formatifCols.length; i++) row2.push('');
+      }
+      if (sumatifCols.length > 0) {
+        row2.push('SUMATIF');
+        for (let i = 1; i < sumatifCols.length; i++) row2.push('');
+      }
+      row2.push('');
+      row2.push('');
+      rows.push(row2);
+
+      // Baris 3: Blank for No/NISN/Nama, Sub-kolom formatif, Sub-kolom sumatif, blank for Rata-rata/Status
+      const row3: any[] = ['', '', ''];
+      orderedCols.forEach((col) => row3.push(col.nama));
+      row3.push('');
+      row3.push('');
+      rows.push(row3);
+
+      // Data Siswa
+      classStudents.forEach((s, idx) => {
+        const studentRow: any[] = [
+          idx + 1,
+          s.nisn,
+          s.nama
+        ];
+
+        orderedCols.forEach((col) => {
+          const val = studentScores[s.id]?.[col.id];
+          studentRow.push(typeof val === 'number' && val > 0 ? val : (val === 0 ? 0 : '-'));
+        });
+
+        const avg = getStudentAverage(s.id);
+        studentRow.push(avg > 0 ? avg : '-');
+        studentRow.push(avg > 0 ? (avg >= schoolSettings.kkmDefault ? 'Tuntas' : 'Bimbingan') : '-');
+
+        rows.push(studentRow);
+      });
+
+      // Statistik di bagian bawah
+      rows.push([]);
+      rows.push(['STATISTIK KELAS', '', '']);
+      rows.push(['Rata-Rata Nilai Akhir Kelas', '', '', '', '', '', '', '', classAvg]);
+      rows.push(['Siswa Tuntas (>= KKM)', '', '', '', '', '', '', '', `${passedStudents} Siswa`]);
+      rows.push(['Target KKM Sekolah', '', '', '', '', '', '', '', schoolSettings.kkmDefault]);
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+
+      // Merges
+      const fLen = formatifCols.length;
+      const sLen = sumatifCols.length;
+      const startCol = 3;
+      const avgCol = startCol + orderedCols.length;
+      const statusCol = avgCol + 1;
+
+      const merges: any[] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: statusCol } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: statusCol } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: statusCol } },
+        { s: { r: 3, c: 0 }, e: { r: 3, c: statusCol } },
+        { s: { r: 4, c: 0 }, e: { r: 4, c: statusCol } },
+
+        { s: { r: 6, c: 0 }, e: { r: 8, c: 0 } },
+        { s: { r: 6, c: 1 }, e: { r: 8, c: 1 } },
+        { s: { r: 6, c: 2 }, e: { r: 8, c: 2 } },
+        { s: { r: 6, c: startCol }, e: { r: 6, c: avgCol - 1 } },
+        { s: { r: 6, c: avgCol }, e: { r: 8, c: avgCol } },
+        { s: { r: 6, c: statusCol }, e: { r: 8, c: statusCol } },
+      ];
+
+      if (fLen > 0) {
+        merges.push({ s: { r: 7, c: startCol }, e: { r: 7, c: startCol + fLen - 1 } });
+      }
+      if (sLen > 0) {
+        merges.push({ s: { r: 7, c: startCol + fLen }, e: { r: 7, c: avgCol - 1 } });
+      }
+
+      ws['!merges'] = merges;
+
+      const colWidths: Array<{ wch: number }> = [
+        { wch: 6 },
+        { wch: 16 },
+        { wch: 32 }
+      ];
+      orderedCols.forEach((c) => colWidths.push({ wch: Math.max(16, c.nama.length + 3) }));
+      colWidths.push({ wch: 14 });
+      colWidths.push({ wch: 20 });
+
+      ws['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, `Nilai_${selectedClass}`);
+      const filename = `Leger_Nilai_Kelas_${selectedClass}_${selectedMapel.replace(/[^a-zA-Z0-9]/g, '_')}_${selectedSemester}.xlsx`;
+      XLSX.writeFile(wb, filename);
+
+      showToast(
+        'success',
+        'Berhasil Ekspor Excel (.xlsx)!',
+        `Leger nilai kelas ${selectedClass} berhasil diekspor ke file Excel: ${filename}`
+      );
+    } catch (err: any) {
+      console.error('Export Excel error in NilaiSiswa:', err);
+      showToast('error', 'Gagal Ekspor Excel', err?.message || 'Terjadi kesalahan saat mengunduh file Excel.');
+    }
   };
 
   // Check if there are any stored grades for this class and mapel in AppContext
@@ -673,6 +812,19 @@ export const NilaiSiswa: React.FC = () => {
                       <span>Cetak Nilai</span>
                     </motion.button>
                   )}
+                  {columns.length > 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      id="btn-export-excel-nilai"
+                      onClick={handleExportExcel}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200 transition cursor-pointer"
+                      title="Ekspor nilai siswa ke format Excel asli (.xlsx - bukan CSV)"
+                    >
+                      <FileSpreadsheet className="h-4 w-4" />
+                      <span>Ekspor Excel (.xlsx)</span>
+                    </motion.button>
+                  )}
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -892,6 +1044,17 @@ export const NilaiSiswa: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-table-export-excel"
+                onClick={handleExportExcel}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+                title="Ekspor tabel nilai siswa ini ke file Excel (.xlsx)"
+              >
+                <Download className="h-3.5 w-3.5 text-emerald-700" />
+                <span>Ekspor Excel (.xlsx)</span>
+              </button>
+
               <button
                 type="button"
                 id="btn-table-hapus-nilai"

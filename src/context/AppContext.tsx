@@ -13,7 +13,8 @@ import {
   ModulAjar,
   LKPDItem,
   UserRole,
-  MataPelajaran
+  MataPelajaran,
+  QuickTargetSchedule
 } from '../types';
 import {
   initialSchoolSettings,
@@ -167,6 +168,12 @@ interface AppContextType {
   closeFeedbackModal: () => void;
   isTesterOpen: boolean;
   setIsTesterOpen: (open: boolean) => void;
+
+  // Quick Action navigation from Jadwal Mengajar to Jurnal & Absensi
+  quickTargetSchedule: QuickTargetSchedule | null;
+  setQuickTargetSchedule: (target: QuickTargetSchedule | null) => void;
+  openJurnalFromJadwal: (jadwal: JadwalMengajar) => void;
+  openAbsensiFromJadwal: (jadwal: JadwalMengajar) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -244,6 +251,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     onCancel?: () => void;
   } | null>(null);
   const [isTesterOpen, setIsTesterOpen] = useState(false);
+
+  // Quick Action navigation target from Jadwal Mengajar
+  const [quickTargetSchedule, setQuickTargetSchedule] = useState<QuickTargetSchedule | null>(null);
+
+  const openJurnalFromJadwal = (sch: JadwalMengajar) => {
+    setQuickTargetSchedule({
+      jadwalId: sch.id,
+      kelas: sch.kelas,
+      jamKe: sch.jamKe,
+      mapel: sch.mapel,
+      ruang: sch.ruang,
+      waktu: sch.waktu,
+      hari: sch.hari,
+      guruId: sch.guruId
+    });
+    setActiveMenu('guru-jurnal');
+  };
+
+  const openAbsensiFromJadwal = (sch: JadwalMengajar) => {
+    setQuickTargetSchedule({
+      jadwalId: sch.id,
+      kelas: sch.kelas,
+      jamKe: sch.jamKe,
+      mapel: sch.mapel,
+      ruang: sch.ruang,
+      waktu: sch.waktu,
+      hari: sch.hari,
+      guruId: sch.guruId
+    });
+    setActiveMenu('guru-absensi');
+  };
 
   // Supabase Cloud Sync state
   const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error'>('idle');
@@ -1011,7 +1049,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         showFeedbackModal,
         closeFeedbackModal,
         isTesterOpen,
-        setIsTesterOpen
+        setIsTesterOpen,
+        quickTargetSchedule,
+        setQuickTargetSchedule,
+        openJurnalFromJadwal,
+        openAbsensiFromJadwal
       }}
     >
       {children}

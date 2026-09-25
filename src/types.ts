@@ -93,6 +93,17 @@ export interface JadwalMengajar {
   ruang: string;
 }
 
+export interface QuickTargetSchedule {
+  jadwalId: string;
+  kelas: string;
+  jamKe: string;
+  mapel: string;
+  ruang?: string;
+  waktu?: string;
+  hari?: string;
+  guruId?: string;
+}
+
 export interface JurnalMengajar {
   id: string;
   guruId: string;

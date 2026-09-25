@@ -42,6 +42,8 @@ export const JadwalMengajar: React.FC = () => {
     updateJadwal,
     deleteJadwal,
     setActiveMenu,
+    openJurnalFromJadwal,
+    openAbsensiFromJadwal,
     schoolSettings,
     showToast,
     showFeedbackModal
@@ -186,6 +188,23 @@ export const JadwalMengajar: React.FC = () => {
   };
 
   const digitalTime = parseDigitalTime(formData.waktu);
+
+  const parseDigitalJam = (val: string) => {
+    const raw = (val || '1 - 2').trim();
+    const parts = raw.split('-').map((p) => parseInt(p.trim(), 10));
+    const start = !isNaN(parts[0]) && parts[0] >= 1 && parts[0] <= 10 ? parts[0] : 1;
+    const end = parts.length > 1 && !isNaN(parts[1]) && parts[1] >= 1 && parts[1] <= 10 ? parts[1] : start;
+    return { start, end };
+  };
+
+  const digitalJam = parseDigitalJam(formData.jamKe);
+
+  const handleDigitalJamChange = (newStart: number, newEnd: number) => {
+    const validStart = Math.min(10, Math.max(1, newStart));
+    const validEnd = Math.min(10, Math.max(1, newEnd));
+    const newJamKe = validStart === validEnd ? `${validStart}` : validStart < validEnd ? `${validStart} - ${validEnd}` : `${validEnd} - ${validStart}`;
+    setFormData({ ...formData, jamKe: newJamKe });
+  };
 
   const handleOpenAdd = (defaultHari?: IJadwal['hari'], defaultJam?: string) => {
     setEditingJadwal(null);
@@ -1261,9 +1280,9 @@ export const JadwalMengajar: React.FC = () => {
                       <div className="mt-4 flex items-center gap-2 border-t border-slate-200/60 pt-3">
                         <button
                           id={`btn-jadwal-jurnal-${item.id}`}
-                          onClick={() => setActiveMenu('guru-jurnal')}
+                          onClick={() => openJurnalFromJadwal(item)}
                           className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-1.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-2xs transition cursor-pointer"
-                          title="Buka Jurnal Mengajar untuk kelas ini"
+                          title="Buka Jurnal Mengajar otomatis untuk kelas ini"
                         >
                           <BookOpenCheck className="h-3.5 w-3.5 text-emerald-600" />
                           <span>Buka Jurnal</span>
@@ -1271,9 +1290,9 @@ export const JadwalMengajar: React.FC = () => {
 
                         <button
                           id={`btn-jadwal-absensi-${item.id}`}
-                          onClick={() => setActiveMenu('guru-absensi')}
+                          onClick={() => openAbsensiFromJadwal(item)}
                           className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 py-1.5 text-xs font-bold text-white hover:from-emerald-700 hover:to-teal-700 shadow-2xs shadow-emerald-300 transition cursor-pointer"
-                          title="Input Absensi Kelas"
+                          title="Input Presensi Siswa otomatis untuk kelas ini"
                         >
                           <ClipboardCheck className="h-3.5 w-3.5" />
                           <span>Presensi</span>
@@ -1611,17 +1630,70 @@ export const JadwalMengajar: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   {/* Jam Ke */}
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-700">
-                      Jam Ke-
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: 1 - 2"
-                      value={formData.jamKe}
-                      onChange={(e) => setFormData({ ...formData, jamKe: e.target.value })}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
-                      required
-                    />
+                    <div className="mb-1 flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Jam Ke-
+                      </label>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        Jam {formData.jamKe || '1 - 2'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="relative flex-1">
+                        <select
+                          id="select-jadwal-jam-mulai"
+                          value={digitalJam.start}
+                          onChange={(e) => handleDigitalJamChange(Number(e.target.value), digitalJam.end)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-mono font-bold text-slate-800 text-center focus:border-emerald-500 focus:outline-none cursor-pointer"
+                          title="Pilih Jam Pelajaran Mulai (1 - 10)"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                            <option key={`jadwal-jam-start-${num}`} value={num}>
+                              Jam {num}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <span className="text-xs font-bold text-slate-400">s/d</span>
+                      <div className="relative flex-1">
+                        <select
+                          id="select-jadwal-jam-selesai"
+                          value={digitalJam.end}
+                          onChange={(e) => handleDigitalJamChange(digitalJam.start, Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-mono font-bold text-slate-800 text-center focus:border-emerald-500 focus:outline-none cursor-pointer"
+                          title="Pilih Jam Pelajaran Selesai (1 - 10)"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                            <option key={`jadwal-jam-end-${num}`} value={num}>
+                              Jam {num}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-1 flex items-center gap-1 overflow-x-auto py-0.5 custom-scrollbar">
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0">Pilihan:</span>
+                      {[
+                        { label: '1-2', start: 1, end: 2 },
+                        { label: '3-4', start: 3, end: 4 },
+                        { label: '5-6', start: 5, end: 6 },
+                        { label: '7-8', start: 7, end: 8 },
+                        { label: '9-10', start: 9, end: 10 }
+                      ].map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => handleDigitalJamChange(p.start, p.end)}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold border transition shrink-0 cursor-pointer ${
+                            formData.jamKe === `${p.start} - ${p.end}`
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Waktu */}

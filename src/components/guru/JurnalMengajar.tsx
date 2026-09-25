@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { JurnalMengajar as IJurnal } from '../../types';
 import {
@@ -13,6 +13,7 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
+  Sparkles,
   X
 } from 'lucide-react';
 import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
@@ -29,13 +30,16 @@ export const JurnalMengajar: React.FC = () => {
     deleteJurnal,
     siswas,
     showToast,
-    showFeedbackModal
+    showFeedbackModal,
+    quickTargetSchedule,
+    setQuickTargetSchedule
   } = useApp();
 
   const [filterKelas, setFilterKelas] = useState('Semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingJurnal, setEditingJurnal] = useState<IJurnal | null>(null);
+  const [isAutoFilledFromSchedule, setIsAutoFilledFromSchedule] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -51,7 +55,55 @@ export const JurnalMengajar: React.FC = () => {
     status: 'Selesai' as IJurnal['status']
   });
 
+  // Otomatisasi: ketika diklik dari tombol Jadwal Mengajar / Dashboard, langsung mengisi kelas, jam, mapel, dan buka formulir
+  useEffect(() => {
+    if (quickTargetSchedule) {
+      setEditingJurnal(null);
+      const targetClass = quickTargetSchedule.kelas;
+      const targetCount = siswas.filter((s) => s.kelas === targetClass).length || 8;
+      setFormData({
+        tanggal: new Date().toISOString().slice(0, 10),
+        jamKe: quickTargetSchedule.jamKe || '1 - 2',
+        kelas: targetClass,
+        mapel: quickTargetSchedule.mapel || currentTeacher?.mapel || 'Matematika',
+        babOrTujuan: '',
+        kegiatanPembelajaran: '',
+        hambatanCatatan: '',
+        jumlahHadir: targetCount,
+        totalSiswa: targetCount,
+        status: 'Selesai'
+      });
+      setFilterKelas(targetClass);
+      setIsAutoFilledFromSchedule(true);
+      setShowModal(true);
+      showToast(
+        'success',
+        `Jurnal Kelas ${targetClass} Terisi Otomatis!`,
+        `Kelas ${targetClass} (${quickTargetSchedule.mapel}) Jam ${quickTargetSchedule.jamKe} sudah terisi. Guru tinggal mengisi materi dan kegiatan pembelajaran.`
+      );
+      setQuickTargetSchedule(null);
+    }
+  }, [quickTargetSchedule, siswas, currentTeacher]);
+
   const teacherJurnals = jurnals.filter((j) => j.guruId === currentTeacher?.id);
+
+  // Digital Jam Ke- (1 - 10) helper
+  const parseDigitalJam = (val: string) => {
+    const raw = (val || '1 - 2').trim();
+    const parts = raw.split('-').map((p) => parseInt(p.trim(), 10));
+    const start = !isNaN(parts[0]) && parts[0] >= 1 && parts[0] <= 10 ? parts[0] : 1;
+    const end = parts.length > 1 && !isNaN(parts[1]) && parts[1] >= 1 && parts[1] <= 10 ? parts[1] : start;
+    return { start, end };
+  };
+
+  const digitalJam = parseDigitalJam(formData.jamKe);
+
+  const handleDigitalJamChange = (newStart: number, newEnd: number) => {
+    const validStart = Math.min(10, Math.max(1, newStart));
+    const validEnd = Math.min(10, Math.max(1, newEnd));
+    const newJamKe = validStart === validEnd ? `${validStart}` : validStart < validEnd ? `${validStart} - ${validEnd}` : `${validEnd} - ${validStart}`;
+    setFormData({ ...formData, jamKe: newJamKe });
+  };
 
   const filteredJurnals = teacherJurnals.filter((j) => {
     const matchKelas = filterKelas === 'Semua' || j.kelas === filterKelas;
@@ -64,6 +116,7 @@ export const JurnalMengajar: React.FC = () => {
 
   const handleOpenAdd = () => {
     setEditingJurnal(null);
+    setIsAutoFilledFromSchedule(false);
     const defaultKelas = currentTeacher?.kelasDiampu[0] || '7A';
     const totalCount = siswas.filter((s) => s.kelas === defaultKelas).length || 8;
     setFormData({
@@ -83,6 +136,7 @@ export const JurnalMengajar: React.FC = () => {
 
   const handleOpenEdit = (j: IJurnal) => {
     setEditingJurnal(j);
+    setIsAutoFilledFromSchedule(false);
     setFormData({
       tanggal: j.tanggal,
       jamKe: j.jamKe,
@@ -349,16 +403,32 @@ export const JurnalMengajar: React.FC = () => {
         <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
           <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h3 className="text-sm font-bold text-slate-800">
-                {editingJurnal ? 'Ubah Catatan Jurnal Mengajar' : 'Isi Jurnal Mengajar Baru'}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-800">
+                  {editingJurnal ? 'Ubah Catatan Jurnal Mengajar' : 'Isi Jurnal Mengajar Baru'}
+                </h3>
+                {isAutoFilledFromSchedule && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+                    <Sparkles className="h-3 w-3 text-emerald-600" /> Otomatis Jadwal
+                  </span>
+                )}
+              </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            {isAutoFilledFromSchedule && (
+              <div className="bg-emerald-50/90 border-b border-emerald-100 px-5 py-2 text-xs text-emerald-900 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>Kelas {formData.kelas} ({formData.mapel}) - Jam {formData.jamKe}</strong> terisi otomatis. Anda tinggal mengisi materi dan kegiatan di bawah ini.
+                </span>
+              </div>
+            )}
 
             <form onSubmit={handleSave} className="p-5 space-y-3.5 max-h-[78vh] overflow-y-auto">
               <div className="grid grid-cols-3 gap-3">
@@ -374,15 +444,45 @@ export const JurnalMengajar: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Jam Ke-</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="misal: 1 - 2"
-                    value={formData.jamKe}
-                    onChange={(e) => setFormData({ ...formData, jamKe: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
-                  />
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700">Jam Ke-</label>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                      Jam {formData.jamKe || '1 - 2'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <select
+                        id="select-jurnal-jam-mulai"
+                        value={digitalJam.start}
+                        onChange={(e) => handleDigitalJamChange(Number(e.target.value), digitalJam.end)}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-mono font-bold text-slate-800 text-center focus:border-emerald-500 focus:outline-none cursor-pointer"
+                        title="Pilih Jam Pelajaran Mulai (1 - 10)"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                          <option key={`jurnal-jam-start-${num}`} value={num}>
+                            Jam {num}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <span className="text-xs font-bold text-slate-400">s/d</span>
+                    <div className="relative flex-1">
+                      <select
+                        id="select-jurnal-jam-selesai"
+                        value={digitalJam.end}
+                        onChange={(e) => handleDigitalJamChange(digitalJam.start, Number(e.target.value))}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-mono font-bold text-slate-800 text-center focus:border-emerald-500 focus:outline-none cursor-pointer"
+                        title="Pilih Jam Pelajaran Selesai (1 - 10)"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                          <option key={`jurnal-jam-end-${num}`} value={num}>
+                            Jam {num}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
                 <div>

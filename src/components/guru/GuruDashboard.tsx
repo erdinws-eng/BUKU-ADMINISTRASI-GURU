@@ -27,7 +27,9 @@ export const GuruDashboard: React.FC = () => {
     protas,
     promesList,
     modulAjars,
-    setActiveMenu
+    setActiveMenu,
+    openJurnalFromJadwal,
+    openAbsensiFromJadwal
   } = useApp();
 
   const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -298,17 +300,21 @@ export const GuruDashboard: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <button
                       id={`btn-act-jurnal-${sch.id}`}
-                      onClick={() => setActiveMenu('guru-jurnal')}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-2xs cursor-pointer transition"
+                      onClick={() => openJurnalFromJadwal(sch)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-2xs cursor-pointer transition"
+                      title={`Buka & Isi Otomatis Jurnal Kelas ${sch.kelas}`}
                     >
-                      Buka Jurnal
+                      <BookOpenCheck className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>Buka Jurnal</span>
                     </button>
                     <button
                       id={`btn-act-absensi-${sch.id}`}
-                      onClick={() => setActiveMenu('guru-absensi')}
-                      className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:from-emerald-700 hover:to-teal-700 shadow-xs shadow-emerald-200 cursor-pointer transition"
+                      onClick={() => openAbsensiFromJadwal(sch)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:from-emerald-700 hover:to-teal-700 shadow-xs shadow-emerald-200 cursor-pointer transition"
+                      title={`Buka Presensi Langsung Siswa Kelas ${sch.kelas}`}
                     >
-                      Presensi Siswa
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      <span>Presensi Siswa</span>
                     </button>
                   </div>
                 </motion.div>

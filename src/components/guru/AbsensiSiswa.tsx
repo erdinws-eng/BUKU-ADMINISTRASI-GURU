@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { StatusKehadiran, AbsensiDetail, SesiAbsensi } from '../../types';
 import {
@@ -11,7 +11,8 @@ import {
   Clock,
   History,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
 import { printWebDocument } from '../../utils/printHelper';
@@ -26,7 +27,9 @@ export const AbsensiSiswa: React.FC = () => {
     saveAbsensi,
     deleteAbsensi,
     showToast,
-    showFeedbackModal
+    showFeedbackModal,
+    quickTargetSchedule,
+    setQuickTargetSchedule
   } = useApp();
 
   const availableClasses = currentTeacher?.kelasDiampu && currentTeacher.kelasDiampu.length > 0
@@ -38,6 +41,65 @@ export const AbsensiSiswa: React.FC = () => {
   const [pertemuanKe, setPertemuanKe] = useState(1);
   const [catatan, setCatatan] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [autoScheduleInfo, setAutoScheduleInfo] = useState<{
+    mapel: string;
+    jamKe: string;
+    ruang?: string;
+    waktu?: string;
+  } | null>(null);
+
+  // Otomatisasi: ketika diklik dari tombol Jadwal Mengajar / Dashboard, langsung mengisi kelas, jam, mapel, tanggal
+  useEffect(() => {
+    if (quickTargetSchedule) {
+      const targetClass = quickTargetSchedule.kelas;
+      setSelectedClass(targetClass);
+      if (quickTargetSchedule.jamKe) {
+        setJamKe(quickTargetSchedule.jamKe);
+      }
+      setTanggal(new Date().toISOString().slice(0, 10));
+
+      // Hitung pertemuan ke- berdasarkan sesi absensi sebelumnya untuk kelas & guru ini
+      const pastSessions = absensis.filter(
+        (a) => a.kelas === targetClass && (!a.guruId || !currentTeacher?.id || a.guruId === currentTeacher.id)
+      );
+      setPertemuanKe(pastSessions.length > 0 ? pastSessions.length + 1 : 1);
+
+      setAutoScheduleInfo({
+        mapel: quickTargetSchedule.mapel,
+        jamKe: quickTargetSchedule.jamKe,
+        ruang: quickTargetSchedule.ruang,
+        waktu: quickTargetSchedule.waktu
+      });
+
+      showToast(
+        'success',
+        `Presensi Kelas ${targetClass} Siap!`,
+        `Kelas ${targetClass} (${quickTargetSchedule.mapel}) Jam ${quickTargetSchedule.jamKe} sudah terisi otomatis. Guru tinggal menandai kehadiran siswa.`
+      );
+      setQuickTargetSchedule(null);
+    }
+  }, [quickTargetSchedule, absensis, currentTeacher]);
+
+  // Helper for digital jam ke- (1 - 10)
+  const digitalJam = useMemo(() => {
+    const raw = (jamKe || '1 - 2').trim();
+    const parts = raw.split('-').map((p) => parseInt(p.trim(), 10));
+    const start = !isNaN(parts[0]) && parts[0] >= 1 && parts[0] <= 10 ? parts[0] : 1;
+    const end = parts.length > 1 && !isNaN(parts[1]) && parts[1] >= 1 && parts[1] <= 10 ? parts[1] : start;
+    return { start, end };
+  }, [jamKe]);
+
+  const handleDigitalJamChange = (newStart: number, newEnd: number) => {
+    const validStart = Math.min(10, Math.max(1, newStart));
+    const validEnd = Math.min(10, Math.max(1, newEnd));
+    if (validStart === validEnd) {
+      setJamKe(`${validStart}`);
+    } else if (validStart < validEnd) {
+      setJamKe(`${validStart} - ${validEnd}`);
+    } else {
+      setJamKe(`${validEnd} - ${validStart}`);
+    }
+  };
 
   // Student list for current class
   const classStudents = selectedClass ? siswas.filter((s) => s.kelas === selectedClass) : [];
@@ -223,6 +285,33 @@ export const AbsensiSiswa: React.FC = () => {
         </div>
       )}
 
+      {/* Otomatisasi Jadwal Indicator */}
+      {autoScheduleInfo && selectedClass && (
+        <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 p-4 text-white shadow-md shadow-emerald-200 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 shrink-0">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-black uppercase tracking-wide">
+                  Presensi Terisi Otomatis: Kelas {selectedClass}
+                </p>
+                <span className="rounded-full bg-white/25 px-2 py-0.5 text-[10px] font-extrabold text-white">
+                  {autoScheduleInfo.mapel}
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-100 font-medium mt-0.5">
+                Jam {jamKe} {autoScheduleInfo.waktu ? `• ${autoScheduleInfo.waktu}` : ''} {autoScheduleInfo.ruang ? `• ${autoScheduleInfo.ruang}` : ''} • Seluruh siswa siap diabsen tanpa perlu mengatur filter.
+              </p>
+            </div>
+          </div>
+          <span className="self-start sm:self-auto rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-xs">
+            Pertemuan Ke-{pertemuanKe}
+          </span>
+        </div>
+      )}
+
       {/* Filter Selection Panel */}
       <div className="no-print rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -255,14 +344,68 @@ export const AbsensiSiswa: React.FC = () => {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">Jam Ke-</label>
-            <input
-              type="text"
-              placeholder="1 - 2"
-              value={jamKe}
-              onChange={(e) => setJamKe(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none"
-            />
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-700">Jam Ke-</label>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                Jam {jamKe}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <select
+                  id="select-jam-mulai-absensi"
+                  value={digitalJam.start}
+                  onChange={(e) => handleDigitalJamChange(Number(e.target.value), digitalJam.end)}
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-xs font-bold text-slate-800 text-center focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer"
+                  title="Pilih Jam Pelajaran Mulai (1 - 10)"
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                    <option key={`jam-start-${num}`} value={num}>
+                      Jam {num}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-xs font-bold text-slate-400">s/d</span>
+              <div className="relative flex-1">
+                <select
+                  id="select-jam-selesai-absensi"
+                  value={digitalJam.end}
+                  onChange={(e) => handleDigitalJamChange(digitalJam.start, Number(e.target.value))}
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-xs font-bold text-slate-800 text-center focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer"
+                  title="Pilih Jam Pelajaran Selesai (1 - 10)"
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                    <option key={`jam-end-${num}`} value={num}>
+                      Jam {num}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="mt-1.5 flex items-center gap-1 overflow-x-auto py-0.5 custom-scrollbar">
+              <span className="text-[10px] text-slate-400 font-medium shrink-0">Pilihan:</span>
+              {[
+                { label: '1-2', start: 1, end: 2 },
+                { label: '3-4', start: 3, end: 4 },
+                { label: '5-6', start: 5, end: 6 },
+                { label: '7-8', start: 7, end: 8 },
+                { label: '9-10', start: 9, end: 10 }
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => handleDigitalJamChange(p.start, p.end)}
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-bold border transition shrink-0 cursor-pointer ${
+                    jamKe === `${p.start} - ${p.end}`
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>

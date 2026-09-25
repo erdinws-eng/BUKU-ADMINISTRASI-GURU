@@ -211,6 +211,22 @@ function saveToStorage<T>(key: string, data: T) {
   }
 }
 
+export function sanitizeNilaiItem(item: NilaiSiswaItem): NilaiSiswaItem {
+  if (item.customScores && Object.keys(item.customScores).length > 0) {
+    const keys = Object.keys(item.customScores);
+    const hasFormatifKey = keys.some((k) => k.toLowerCase().startsWith('formatif'));
+    if (!hasFormatifKey) {
+      return {
+        ...item,
+        formatif1: 0,
+        formatif2: 0,
+        formatif3: 0
+      };
+    }
+  }
+  return item;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Auth state: null means not logged in, requiring username & password login
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
@@ -232,7 +248,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [jadwals, setJadwals] = useState<JadwalMengajar[]>(() => loadFromStorage('jadwals', initialJadwals));
   const [jurnals, setJurnals] = useState<JurnalMengajar[]>(() => loadFromStorage('jurnals', initialJurnals));
   const [absensis, setAbsensis] = useState<SesiAbsensi[]>(() => loadFromStorage('absensis', initialAbsensis));
-  const [nilais, setNilais] = useState<NilaiSiswaItem[]>(() => loadFromStorage('nilais', initialNilais));
+  const [nilais, setNilais] = useState<NilaiSiswaItem[]>(() => {
+    const raw = loadFromStorage<NilaiSiswaItem[]>('nilais', initialNilais);
+    return Array.isArray(raw) ? raw.map(sanitizeNilaiItem) : initialNilais;
+  });
+
+  // Ensure any legacy polluted formatif fields in storage are cleaned immediately
+  useEffect(() => {
+    const raw = loadFromStorage<NilaiSiswaItem[]>('nilais', []);
+    if (Array.isArray(raw) && raw.length > 0) {
+      let isChanged = false;
+      const cleaned = raw.map((item) => {
+        const sanitized = sanitizeNilaiItem(item);
+        if (sanitized.formatif1 !== item.formatif1 || sanitized.formatif2 !== item.formatif2 || sanitized.formatif3 !== item.formatif3) {
+          isChanged = true;
+        }
+        return sanitized;
+      });
+      if (isChanged) {
+        saveToStorage('nilais', cleaned);
+        setNilais(cleaned);
+      }
+    }
+  }, []);
   const [protas, setProtas] = useState<ProtaItem[]>(() => loadFromStorage('protas', initialProtas));
   const [promesList, setPromesList] = useState<PromesItem[]>(() => loadFromStorage('promesList', initialPromes));
   const [modulAjars, setModulAjars] = useState<ModulAjar[]>(() => loadFromStorage('modulAjars', initialModulAjars));
@@ -421,8 +459,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           saveToStorage('absensis', d.absensis);
         }
         if (Array.isArray(d.nilais) && d.nilais.length > 0) {
-          setNilais(d.nilais);
-          saveToStorage('nilais', d.nilais);
+          const cleanNilais = d.nilais.map(sanitizeNilaiItem);
+          setNilais(cleanNilais);
+          saveToStorage('nilais', cleanNilais);
         }
         if (Array.isArray(d.protas) && d.protas.length > 0) {
           setProtas(d.protas);
@@ -822,7 +861,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const saveNilaiBatch = (items: NilaiSiswaItem[]) => {
     setNilais((prev) => {
       const copy = [...prev];
-      items.forEach((item) => {
+      items.forEach((rawItem) => {
+        const item = sanitizeNilaiItem(rawItem);
         const idx = copy.findIndex((n) => n.siswaId === item.siswaId && n.mapel === item.mapel && n.semester === item.semester);
         if (idx >= 0) {
           copy[idx] = item;
@@ -830,6 +870,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           copy.push(item);
         }
       });
+      saveToStorage('nilais', copy);
       return copy;
     });
   };

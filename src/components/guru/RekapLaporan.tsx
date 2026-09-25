@@ -39,47 +39,71 @@ export const RekapLaporan: React.FC = () => {
     absensis,
     nilais,
     jurnals,
+    jadwals,
     protas,
     schoolSettings,
     showToast,
-    mapels
+    mapels,
+    setActiveMenu
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'absensi' | 'nilai' | 'jurnal'>('nilai');
 
-  // Available classes: prioritize teacher assigned, but include student classes & grade records so 9B is always accessible
+  // Available classes: strictly classes taught by current teacher
   const availableClasses = useMemo(() => {
     const set = new Set<string>();
+    // 1. Classes assigned in teacher profile
     if (currentTeacher?.kelasDiampu && currentTeacher.kelasDiampu.length > 0) {
       currentTeacher.kelasDiampu.forEach((k) => k && set.add(k.trim()));
     }
-    if (siswas && siswas.length > 0) {
-      siswas.forEach((s) => s.kelas && set.add(s.kelas));
+    // 2. Classes from teacher's schedule
+    if (jadwals && currentTeacher?.id) {
+      jadwals.filter((j) => j.guruId === currentTeacher.id).forEach((j) => j.kelas && set.add(j.kelas.trim()));
     }
-    nilais.forEach((n) => n.kelas && set.add(n.kelas));
+    // 3. Classes where teacher recorded grades
+    if (nilais && currentTeacher?.id) {
+      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.kelas && set.add(n.kelas.trim()));
+    }
+    // Fallback only if teacher profile has no classes configured at all
     if (set.size === 0) {
-      ['7A', '7B', '8A', '8B', '9A', '9B'].forEach((k) => set.add(k));
+      if (siswas && siswas.length > 0) {
+        siswas.forEach((s) => s.kelas && set.add(s.kelas));
+      }
+      if (set.size === 0) {
+        ['7A', '7B', '8A', '8B', '9A', '9B'].forEach((k) => set.add(k));
+      }
     }
     return Array.from(set).sort();
-  }, [currentTeacher?.kelasDiampu, siswas, nilais]);
+  }, [currentTeacher?.kelasDiampu, currentTeacher?.id, jadwals, nilais, siswas]);
 
   const [selectedClass, setSelectedClass] = useState<string>(availableClasses[0] || '7A');
 
-  // Available subjects: teacher subjects, mapel master data, standard subjects, and any subject in recorded grades
+  // Available subjects: strictly subjects taught by current teacher
   const availableMapels = useMemo(() => {
     const set = new Set<string>();
+    // 1. Subjects assigned in teacher profile
     if (currentTeacher?.mapelList && currentTeacher.mapelList.length > 0) {
       currentTeacher.mapelList.forEach((m) => m && set.add(m.trim()));
     } else if (currentTeacher?.mapel && currentTeacher.mapel.trim() && currentTeacher.mapel !== 'Mata Pelajaran') {
       currentTeacher.mapel.split(',').forEach((m) => m.trim() && set.add(m.trim()));
     }
-    if (mapels && mapels.length > 0) {
-      mapels.forEach((m) => m.nama && set.add(m.nama.trim()));
+    // 2. Subjects from teacher's schedule
+    if (jadwals && currentTeacher?.id) {
+      jadwals.filter((j) => j.guruId === currentTeacher.id).forEach((j) => j.mapel && set.add(j.mapel.trim()));
     }
-    STANDARD_MAPEL_LIST.forEach((m) => set.add(m));
-    nilais.forEach((n) => n.mapel && set.add(n.mapel));
+    // 3. Subjects where teacher recorded grades
+    if (nilais && currentTeacher?.id) {
+      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.mapel && set.add(n.mapel.trim()));
+    }
+    // Fallback only if teacher has no subject configured at all
+    if (set.size === 0) {
+      if (mapels && mapels.length > 0) {
+        mapels.forEach((m) => m.nama && set.add(m.nama.trim()));
+      }
+      STANDARD_MAPEL_LIST.forEach((m) => set.add(m));
+    }
     return Array.from(set).filter(Boolean);
-  }, [currentTeacher?.mapelList, currentTeacher?.mapel, mapels, nilais]);
+  }, [currentTeacher?.mapelList, currentTeacher?.mapel, currentTeacher?.id, jadwals, nilais, mapels]);
 
   const [selectedMapel, setSelectedMapel] = useState<string>(() => {
     if (currentTeacher?.mapel && currentTeacher.mapel !== 'Mata Pelajaran') {
@@ -88,7 +112,25 @@ export const RekapLaporan: React.FC = () => {
     return 'Informatika';
   });
 
-  const classStudents = siswas.filter((s) => s.kelas === selectedClass);
+  // Keep selectedClass synchronized with teacher's assigned classes
+  React.useEffect(() => {
+    if (availableClasses.length > 0 && !availableClasses.includes(selectedClass)) {
+      setSelectedClass(availableClasses[0]);
+    }
+  }, [availableClasses, selectedClass]);
+
+  // Keep selectedMapel synchronized with teacher's assigned subjects
+  React.useEffect(() => {
+    if (availableMapels.length > 0 && !availableMapels.includes(selectedMapel)) {
+      setSelectedMapel(availableMapels[0]);
+    }
+  }, [availableMapels, selectedMapel]);
+
+  const classStudents = useMemo(() => {
+    return siswas
+      .filter((s) => s.kelas === selectedClass)
+      .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+  }, [siswas, selectedClass]);
   const teacherAbsensis = absensis.filter(
     (a) => a.guruId === currentTeacher?.id && a.kelas === selectedClass
   );
@@ -150,8 +192,9 @@ export const RekapLaporan: React.FC = () => {
       const seenColIds = new Set<string>();
 
       savedForClass.forEach((item) => {
-        if (item.customScores) {
-          Object.keys(item.customScores).forEach((k) => {
+        const hasCustom = item.customScores && Object.keys(item.customScores).length > 0;
+        if (hasCustom) {
+          Object.keys(item.customScores!).forEach((k) => {
             if (!seenColIds.has(k)) {
               seenColIds.add(k);
               const lower = k.toLowerCase();
@@ -164,27 +207,28 @@ export const RekapLaporan: React.FC = () => {
               }
             }
           });
-        }
-        // Legacy fields: Hanya tambahkan jika benar-benar ada nilai numerik riil > 0
-        if (typeof item.formatif1 === 'number' && item.formatif1 > 0 && !seenColIds.has('formatif1')) {
-          seenColIds.add('formatif1');
-          formatifCols.push({ id: 'formatif1', nama: 'Formatif 1 (TP 1)', jenis: 'formatif' });
-        }
-        if (typeof item.formatif2 === 'number' && item.formatif2 > 0 && !seenColIds.has('formatif2')) {
-          seenColIds.add('formatif2');
-          formatifCols.push({ id: 'formatif2', nama: 'Formatif 2 (TP 2)', jenis: 'formatif' });
-        }
-        if (typeof item.formatif3 === 'number' && item.formatif3 > 0 && !seenColIds.has('formatif3')) {
-          seenColIds.add('formatif3');
-          formatifCols.push({ id: 'formatif3', nama: 'Formatif 3 (TP 3)', jenis: 'formatif' });
-        }
-        if (typeof item.sts === 'number' && item.sts > 0 && !seenColIds.has('sts')) {
-          seenColIds.add('sts');
-          sumatifCols.push({ id: 'sts', nama: 'STS', jenis: 'sumatif' });
-        }
-        if (typeof item.sas === 'number' && item.sas > 0 && !seenColIds.has('sas')) {
-          seenColIds.add('sas');
-          sumatifCols.push({ id: 'sas', nama: 'SAS', jenis: 'sumatif' });
+        } else {
+          // Legacy fields: Hanya tambahkan jika customScores TIDAK ADA sama sekali
+          if (typeof item.formatif1 === 'number' && item.formatif1 > 0 && !seenColIds.has('formatif1')) {
+            seenColIds.add('formatif1');
+            formatifCols.push({ id: 'formatif1', nama: 'Formatif 1 (TP 1)', jenis: 'formatif' });
+          }
+          if (typeof item.formatif2 === 'number' && item.formatif2 > 0 && !seenColIds.has('formatif2')) {
+            seenColIds.add('formatif2');
+            formatifCols.push({ id: 'formatif2', nama: 'Formatif 2 (TP 2)', jenis: 'formatif' });
+          }
+          if (typeof item.formatif3 === 'number' && item.formatif3 > 0 && !seenColIds.has('formatif3')) {
+            seenColIds.add('formatif3');
+            formatifCols.push({ id: 'formatif3', nama: 'Formatif 3 (TP 3)', jenis: 'formatif' });
+          }
+          if (typeof item.sts === 'number' && item.sts > 0 && !seenColIds.has('sts')) {
+            seenColIds.add('sts');
+            sumatifCols.push({ id: 'sts', nama: 'STS', jenis: 'sumatif' });
+          }
+          if (typeof item.sas === 'number' && item.sas > 0 && !seenColIds.has('sas')) {
+            seenColIds.add('sas');
+            sumatifCols.push({ id: 'sas', nama: 'SAS', jenis: 'sumatif' });
+          }
         }
       });
 
@@ -257,15 +301,19 @@ export const RekapLaporan: React.FC = () => {
     assessmentCols.formatif.forEach((col: any) => {
       let val: number | undefined = undefined;
       if (n) {
-        if (n.customScores && n.customScores[col.id] !== undefined) {
-          const rawV = n.customScores[col.id];
-          if (typeof rawV === 'number') val = rawV;
-        } else if (col.id === 'formatif1' && typeof n.formatif1 === 'number' && n.formatif1 > 0) {
-          val = n.formatif1;
-        } else if (col.id === 'formatif2' && typeof n.formatif2 === 'number' && n.formatif2 > 0) {
-          val = n.formatif2;
-        } else if (col.id === 'formatif3' && typeof n.formatif3 === 'number' && n.formatif3 > 0) {
-          val = n.formatif3;
+        if (n.customScores && Object.keys(n.customScores).length > 0) {
+          if (n.customScores[col.id] !== undefined) {
+            const rawV = n.customScores[col.id];
+            if (typeof rawV === 'number') val = rawV;
+          }
+        } else {
+          if (col.id === 'formatif1' && typeof n.formatif1 === 'number' && n.formatif1 > 0) {
+            val = n.formatif1;
+          } else if (col.id === 'formatif2' && typeof n.formatif2 === 'number' && n.formatif2 > 0) {
+            val = n.formatif2;
+          } else if (col.id === 'formatif3' && typeof n.formatif3 === 'number' && n.formatif3 > 0) {
+            val = n.formatif3;
+          }
         }
       }
       formatifScores[col.id] = val;
@@ -426,6 +474,15 @@ export const RekapLaporan: React.FC = () => {
       }
 
       // Default / Tab Nilai: Ekspor LEGER NILAI SISWA (Kurikulum Merdeka 3 Baris Header)
+      if (gradedList.length === 0) {
+        showToast(
+          'warning',
+          'Belum Ada Nilai Tersimpan',
+          `Tidak ada data penilaian untuk diekspor pada kelas ${selectedClass} (${targetMapel}). Silakan input nilai terlebih dahulu.`
+        );
+        return;
+      }
+
       const wb = XLSX.utils.book_new();
       const rows: any[][] = [];
 
@@ -751,216 +808,219 @@ export const RekapLaporan: React.FC = () => {
 
       {/* TAB 1: Rekap Nilai Siswa */}
       {activeTab === 'nilai' && (
-        <div className="space-y-3">
-          {gradedList.length === 0 && (
-            <div className="no-print rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-2xs">
-              <span className="flex items-center gap-2 font-medium">
-                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                Belum ada nilai tersimpan untuk Kelas {selectedClass} ({targetMapel}).
-              </span>
-              <span className="text-[11px] text-amber-700/90 font-medium">
-                Data penilaian tersinkronisasi otomatis dengan menu Nilai Siswa.
-              </span>
+        <div className="space-y-4">
+          {gradedList.length === 0 ? (
+            <div className="no-print rounded-2xl border border-slate-200 bg-white p-8 sm:p-12 text-center shadow-xs">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 mb-4 border border-amber-200 shadow-2xs">
+                <GraduationCap className="h-8 w-8" />
+              </div>
+              <h3 className="text-base font-bold text-slate-800">
+                Belum Ada Data Penilaian Kelas {selectedClass}
+              </h3>
+              <p className="mt-2 text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                Tabel nilai disembunyikan karena belum ada penilaian yang diisi atau disimpan untuk kelas <span className="font-bold text-slate-700">{selectedClass}</span> pada mata pelajaran <span className="font-bold text-slate-700">{targetMapel}</span>.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveMenu('guru-nilai')}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition cursor-pointer shadow-sm shadow-emerald-200"
+                >
+                  <BookOpenCheck className="h-4 w-4" />
+                  <span>Input Nilai di Menu Nilai Siswa</span>
+                </button>
+              </div>
             </div>
-          )}
+          ) : (
+            <>
+              {/* Action Toolbar for Leger Nilai */}
+              <div className="no-print flex flex-wrap items-center justify-between gap-3 px-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800 border border-emerald-200">
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Leger Penilaian Siswa
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    Kelas {selectedClass} • {targetMapel} ({gradedList.length} Siswa Terisi)
+                  </span>
+                </div>
 
-          {/* Action Toolbar for Leger Nilai */}
-          <div className="no-print flex flex-wrap items-center justify-between gap-3 px-1">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800 border border-emerald-200">
-                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Leger Penilaian Siswa
-              </span>
-              <span className="text-xs text-slate-500">
-                Kelas {selectedClass} • {targetMapel} ({gradeRecap.length} Siswa)
-              </span>
-            </div>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  id="btn-export-excel-leger"
+                  onClick={handleExportExcel}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+                  title="Unduh leger nilai siswa ke format file Excel (.xlsx)"
+                >
+                  <Download className="h-3.5 w-3.5 text-emerald-700" />
+                  <span>Ekspor Leger ke Excel (.xlsx)</span>
+                </motion.button>
+              </div>
 
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              id="btn-export-excel-leger"
-              onClick={handleExportExcel}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
-              title="Unduh leger nilai siswa ke format file Excel (.xlsx)"
-            >
-              <Download className="h-3.5 w-3.5 text-emerald-700" />
-              <span>Ekspor Leger ke Excel (.xlsx)</span>
-            </motion.button>
-          </div>
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="border-b border-slate-200 bg-slate-50 font-bold tracking-wider text-slate-700">
+                      {/* BARIS 1: NO, NISN, NAMA SISWA, PENILAIAN, NILAI AKHIR, STATUS */}
+                      <tr className="border-b border-slate-200">
+                        <th rowSpan={3} className="px-3 py-3 text-center border-r border-slate-200 w-12 uppercase">
+                          No
+                        </th>
+                        <th rowSpan={3} className="px-3.5 py-3 text-left border-r border-slate-200 w-32 uppercase">
+                          NISN
+                        </th>
+                        <th rowSpan={3} className="px-4 py-3 text-left border-r border-slate-200 min-w-[190px] uppercase">
+                          Nama Siswa
+                        </th>
+                        {assessmentCols.formatif.length + assessmentCols.sumatif.length > 0 ? (
+                          <th
+                            colSpan={assessmentCols.formatif.length + assessmentCols.sumatif.length}
+                            className="px-3 py-2 text-center bg-emerald-50/90 text-emerald-950 border-b border-slate-200 font-extrabold uppercase tracking-wider text-[11px]"
+                          >
+                            Penilaian
+                          </th>
+                        ) : (
+                          <th
+                            rowSpan={3}
+                            className="px-3 py-2 text-center bg-slate-100 text-slate-500 border-r border-b border-slate-200 font-semibold uppercase tracking-wider text-[11px]"
+                          >
+                            Penilaian (Belum Diinput)
+                          </th>
+                        )}
+                        <th rowSpan={3} className="px-3 py-3 text-center font-bold bg-emerald-100/60 text-emerald-900 border-l border-r border-slate-200 w-28 uppercase">
+                          Nilai Akhir
+                        </th>
+                        <th rowSpan={3} className="px-3 py-3 text-center w-24 uppercase">
+                          Status
+                        </th>
+                      </tr>
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="border-b border-slate-200 bg-slate-50 font-bold tracking-wider text-slate-700">
-                {/* BARIS 1: NO, NISN, NAMA SISWA, PENILAIAN, NILAI AKHIR, STATUS */}
-                <tr className="border-b border-slate-200">
-                  <th rowSpan={3} className="px-3 py-3 text-center border-r border-slate-200 w-12 uppercase">
-                    No
-                  </th>
-                  <th rowSpan={3} className="px-3.5 py-3 text-left border-r border-slate-200 w-32 uppercase">
-                    NISN
-                  </th>
-                  <th rowSpan={3} className="px-4 py-3 text-left border-r border-slate-200 min-w-[190px] uppercase">
-                    Nama Siswa
-                  </th>
-                  {assessmentCols.formatif.length + assessmentCols.sumatif.length > 0 ? (
-                    <th
-                      colSpan={assessmentCols.formatif.length + assessmentCols.sumatif.length}
-                      className="px-3 py-2 text-center bg-emerald-50/90 text-emerald-950 border-b border-slate-200 font-extrabold uppercase tracking-wider text-[11px]"
-                    >
-                      Penilaian
-                    </th>
-                  ) : (
-                    <th
-                      rowSpan={3}
-                      className="px-3 py-2 text-center bg-slate-100 text-slate-500 border-r border-b border-slate-200 font-semibold uppercase tracking-wider text-[11px]"
-                    >
-                      Penilaian (Belum Diinput)
-                    </th>
-                  )}
-                  <th rowSpan={3} className="px-3 py-3 text-center font-bold bg-emerald-100/60 text-emerald-900 border-l border-r border-slate-200 w-28 uppercase">
-                    Nilai Akhir
-                  </th>
-                  <th rowSpan={3} className="px-3 py-3 text-center w-24 uppercase">
-                    Status
-                  </th>
-                </tr>
-
-                {/* BARIS 2: FORMATIF | SUMATIF (HANYA DITAMPILKAN JIKA KOLOM ADA) */}
-                {(assessmentCols.formatif.length > 0 || assessmentCols.sumatif.length > 0) && (
-                  <tr className="border-b border-slate-200 text-[11px] font-bold">
-                    {assessmentCols.formatif.length > 0 && (
-                      <th
-                        colSpan={assessmentCols.formatif.length}
-                        className={`px-3 py-1.5 text-center bg-emerald-100/80 text-emerald-900 border-b border-slate-200 uppercase tracking-wide ${
-                          assessmentCols.sumatif.length > 0 ? 'border-r' : ''
-                        }`}
-                      >
-                        FORMATIF
-                      </th>
-                    )}
-                    {assessmentCols.sumatif.length > 0 && (
-                      <th
-                        colSpan={assessmentCols.sumatif.length}
-                        className="px-3 py-1.5 text-center bg-blue-100/80 text-blue-900 border-b border-slate-200 uppercase tracking-wide"
-                      >
-                        SUMATIF
-                      </th>
-                    )}
-                  </tr>
-                )}
-
-                {/* BARIS 3: NAMA-NAMA PENILAIAN SESUAI YANG DIISI DI MENU NILAI SISWA */}
-                {(assessmentCols.formatif.length > 0 || assessmentCols.sumatif.length > 0) && (
-                  <tr className="border-b border-slate-200 bg-slate-100/60 text-[11px] font-semibold text-slate-700">
-                    {/* Di bawah Formatif */}
-                    {assessmentCols.formatif.map((col: any) => (
-                      <th
-                        key={col.id}
-                        className="px-2.5 py-2 text-center border-r border-slate-200 bg-emerald-50/40"
-                        title={col.nama}
-                      >
-                        <span className="line-clamp-2 max-w-[120px] mx-auto">{col.nama}</span>
-                      </th>
-                    ))}
-                    {/* Di bawah Sumatif */}
-                    {assessmentCols.sumatif.map((col: any, idx: number) => (
-                      <th
-                        key={col.id}
-                        className={`px-2.5 py-2 text-center bg-blue-50/40 ${
-                          idx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-200' : ''
-                        }`}
-                        title={col.nama}
-                      >
-                        <span className="line-clamp-2 max-w-[120px] mx-auto">{col.nama}</span>
-                      </th>
-                    ))}
-                  </tr>
-                )}
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {gradeRecap.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={5 + Math.max(1, assessmentCols.formatif.length + assessmentCols.sumatif.length)}
-                      className="py-8 text-center text-xs text-slate-400"
-                    >
-                      Belum ada data siswa atau nilai di kelas {selectedClass}.
-                    </td>
-                  </tr>
-                ) : (
-                  gradeRecap.map((item, idx) => (
-                    <tr key={item.siswa.id} className="hover:bg-slate-50/80 transition">
-                      <td className="px-3.5 py-2.5 text-center font-bold text-slate-400 border-r border-slate-100">
-                        {idx + 1}
-                      </td>
-                      <td className="px-3.5 py-2.5 font-mono text-xs font-semibold text-slate-600 border-r border-slate-100 whitespace-nowrap">
-                        {item.siswa.nisn || '-'}
-                      </td>
-                      <td className="px-4 py-2.5 font-bold text-slate-900 border-r border-slate-100 whitespace-nowrap">
-                        {item.siswa.nama}
-                      </td>
-
-                      {/* Kolom Nilai Formatif (Hanya jika ada) */}
-                      {assessmentCols.formatif.map((col: any) => (
-                        <td
-                          key={col.id}
-                          className="px-2.5 py-2.5 text-center border-r border-slate-100 font-semibold bg-emerald-50/20"
-                        >
-                          {item.formatifScores[col.id] !== undefined ? item.formatifScores[col.id] : '-'}
-                        </td>
-                      ))}
-
-                      {/* Kolom Nilai Sumatif (Hanya jika ada) */}
-                      {assessmentCols.sumatif.map((col: any, sIdx: number) => (
-                        <td
-                          key={col.id}
-                          className={`px-2.5 py-2.5 text-center font-semibold bg-blue-50/20 ${
-                            sIdx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-100' : ''
-                          }`}
-                        >
-                          {item.sumatifScores[col.id] !== undefined ? item.sumatifScores[col.id] : '-'}
-                        </td>
-                      ))}
-
-                      {assessmentCols.formatif.length + assessmentCols.sumatif.length === 0 && (
-                        <td className="px-3 py-2.5 text-center text-slate-400 font-semibold border-r border-slate-100">
-                          -
-                        </td>
+                      {/* BARIS 2: FORMATIF | SUMATIF (HANYA DITAMPILKAN JIKA KOLOM ADA) */}
+                      {(assessmentCols.formatif.length > 0 || assessmentCols.sumatif.length > 0) && (
+                        <tr className="border-b border-slate-200 text-[11px] font-bold">
+                          {assessmentCols.formatif.length > 0 && (
+                            <th
+                              colSpan={assessmentCols.formatif.length}
+                              className={`px-3 py-1.5 text-center bg-emerald-100/80 text-emerald-900 border-b border-slate-200 uppercase tracking-wide ${
+                                assessmentCols.sumatif.length > 0 ? 'border-r' : ''
+                              }`}
+                            >
+                              FORMATIF
+                            </th>
+                          )}
+                          {assessmentCols.sumatif.length > 0 && (
+                            <th
+                              colSpan={assessmentCols.sumatif.length}
+                              className="px-3 py-1.5 text-center bg-blue-100/80 text-blue-900 border-b border-slate-200 uppercase tracking-wide"
+                            >
+                              SUMATIF
+                            </th>
+                          )}
+                        </tr>
                       )}
 
-                      {/* Nilai Akhir */}
-                      <td className="px-3 py-2.5 text-center font-bold text-sm bg-emerald-50/40 text-emerald-800 border-l border-r border-slate-100">
-                        {item.hasScore ? item.finalScore : <span className="text-slate-400 font-semibold">-</span>}
-                      </td>
+                      {/* BARIS 3: NAMA-NAMA PENILAIAN SESUAI YANG DIISI DI MENU NILAI SISWA */}
+                      {(assessmentCols.formatif.length > 0 || assessmentCols.sumatif.length > 0) && (
+                        <tr className="border-b border-slate-200 bg-slate-100/60 text-[11px] font-semibold text-slate-700">
+                          {/* Di bawah Formatif */}
+                          {assessmentCols.formatif.map((col: any) => (
+                            <th
+                              key={col.id}
+                              className="px-2.5 py-2 text-center border-r border-slate-200 bg-emerald-50/40"
+                              title={col.nama}
+                            >
+                              <span className="line-clamp-2 max-w-[120px] mx-auto">{col.nama}</span>
+                            </th>
+                          ))}
+                          {/* Di bawah Sumatif */}
+                          {assessmentCols.sumatif.map((col: any, idx: number) => (
+                            <th
+                              key={col.id}
+                              className={`px-2.5 py-2 text-center bg-blue-50/40 ${
+                                idx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-200' : ''
+                              }`}
+                              title={col.nama}
+                            >
+                              <span className="line-clamp-2 max-w-[120px] mx-auto">{col.nama}</span>
+                            </th>
+                          ))}
+                        </tr>
+                      )}
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {gradeRecap.map((item, idx) => (
+                        <tr key={item.siswa.id} className="hover:bg-slate-50/80 transition">
+                          <td className="px-3.5 py-2.5 text-center font-bold text-slate-400 border-r border-slate-100">
+                            {idx + 1}
+                          </td>
+                          <td className="px-3.5 py-2.5 font-mono text-xs font-semibold text-slate-600 border-r border-slate-100 whitespace-nowrap">
+                            {item.siswa.nisn || '-'}
+                          </td>
+                          <td className="px-4 py-2.5 font-bold text-slate-900 border-r border-slate-100 whitespace-nowrap">
+                            {item.siswa.nama}
+                          </td>
 
-                      {/* Status */}
-                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                        {item.hasScore ? (
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                              item.isPassed
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-rose-50 text-rose-700 border border-rose-200'
-                            }`}
-                          >
-                            {item.isPassed ? 'Tuntas' : 'Remedial'}
-                          </span>
-                        ) : (
-                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
-                            Belum Dinilai
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                          {/* Kolom Nilai Formatif (Hanya jika ada) */}
+                          {assessmentCols.formatif.map((col: any) => (
+                            <td
+                              key={col.id}
+                              className="px-2.5 py-2.5 text-center border-r border-slate-100 font-semibold bg-emerald-50/20"
+                            >
+                              {item.formatifScores[col.id] !== undefined ? item.formatifScores[col.id] : '-'}
+                            </td>
+                          ))}
+
+                          {/* Kolom Nilai Sumatif (Hanya jika ada) */}
+                          {assessmentCols.sumatif.map((col: any, sIdx: number) => (
+                            <td
+                              key={col.id}
+                              className={`px-2.5 py-2.5 text-center font-semibold bg-blue-50/20 ${
+                                sIdx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-100' : ''
+                              }`}
+                            >
+                              {item.sumatifScores[col.id] !== undefined ? item.sumatifScores[col.id] : '-'}
+                            </td>
+                          ))}
+
+                          {assessmentCols.formatif.length + assessmentCols.sumatif.length === 0 && (
+                            <td className="px-3 py-2.5 text-center text-slate-400 font-semibold border-r border-slate-100">
+                              -
+                            </td>
+                          )}
+
+                          {/* Nilai Akhir */}
+                          <td className="px-3 py-2.5 text-center font-bold text-sm bg-emerald-50/40 text-emerald-800 border-l border-r border-slate-100">
+                            {item.hasScore ? item.finalScore : <span className="text-slate-400 font-semibold">-</span>}
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                            {item.hasScore ? (
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  item.isPassed
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}
+                              >
+                                {item.isPassed ? 'Tuntas' : 'Remedial'}
+                              </span>
+                            ) : (
+                              <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                                Belum Dinilai
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </div>
-    )}
+      )}
 
       {/* TAB 2: Rekap Absensi Siswa */}
       {activeTab === 'absensi' && (

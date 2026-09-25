@@ -51,6 +51,7 @@ export const NilaiSiswa: React.FC = () => {
     currentTeacher,
     siswas,
     nilais,
+    jadwals,
     saveNilaiBatch,
     deleteNilaiByFilter,
     deleteAllNilai,
@@ -60,12 +61,22 @@ export const NilaiSiswa: React.FC = () => {
     showFeedbackModal
   } = useApp();
 
-  // Available classes computed strictly prioritizing current teacher's classes
+  // Available classes computed strictly matching current teacher's classes
   const availableClasses = useMemo(() => {
     const set = new Set<string>();
+    // 1. Classes assigned in teacher profile
     if (currentTeacher?.kelasDiampu && currentTeacher.kelasDiampu.length > 0) {
       currentTeacher.kelasDiampu.forEach((k) => k && set.add(k.trim()));
     }
+    // 2. Classes from teacher's schedule
+    if (jadwals && currentTeacher?.id) {
+      jadwals.filter((j) => j.guruId === currentTeacher.id).forEach((j) => j.kelas && set.add(j.kelas.trim()));
+    }
+    // 3. Classes where teacher recorded grades
+    if (nilais && currentTeacher?.id) {
+      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.kelas && set.add(n.kelas.trim()));
+    }
+    // Fallback only if teacher profile has no classes configured at all
     if (set.size === 0) {
       siswas.forEach((s) => s.kelas && set.add(s.kelas));
     }
@@ -73,16 +84,26 @@ export const NilaiSiswa: React.FC = () => {
       ['7A', '7B', '8A', '8B', '9A', '9B'].forEach((k) => set.add(k));
     }
     return Array.from(set).sort();
-  }, [currentTeacher?.kelasDiampu, siswas]);
+  }, [currentTeacher?.kelasDiampu, currentTeacher?.id, jadwals, nilais, siswas]);
 
-  // Available subjects prioritizing current teacher's subjects
+  // Available subjects strictly matching current teacher's subjects
   const availableMapels = useMemo(() => {
     const set = new Set<string>();
+    // 1. Subjects assigned in teacher profile
     if (currentTeacher?.mapelList && currentTeacher.mapelList.length > 0) {
       currentTeacher.mapelList.forEach((m) => m && set.add(m.trim()));
     } else if (currentTeacher?.mapel && currentTeacher.mapel.trim() && currentTeacher.mapel !== 'Mata Pelajaran') {
       currentTeacher.mapel.split(',').forEach((m) => m.trim() && set.add(m.trim()));
     }
+    // 2. Subjects from teacher's schedule
+    if (jadwals && currentTeacher?.id) {
+      jadwals.filter((j) => j.guruId === currentTeacher.id).forEach((j) => j.mapel && set.add(j.mapel.trim()));
+    }
+    // 3. Subjects where teacher recorded grades
+    if (nilais && currentTeacher?.id) {
+      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.mapel && set.add(n.mapel.trim()));
+    }
+    // Fallback only if teacher has no subject assigned
     if (set.size === 0) {
       if (mapels && mapels.length > 0) {
         mapels.forEach((m) => m.nama && set.add(m.nama.trim()));
@@ -90,7 +111,7 @@ export const NilaiSiswa: React.FC = () => {
       STANDARD_MAPEL_LIST.forEach((m) => set.add(m));
     }
     return Array.from(set).filter(Boolean);
-  }, [currentTeacher?.mapelList, currentTeacher?.mapel, mapels]);
+  }, [currentTeacher?.mapelList, currentTeacher?.mapel, currentTeacher?.id, jadwals, nilais, mapels]);
 
   // Filter states - empty by default as requested: "tampilan penilaian siswa kosongkan dulu dan akan muncul setelah mengisi filter kelas dan mata pelajaran"
   const [selectedClass, setSelectedClass] = useState<string>('');

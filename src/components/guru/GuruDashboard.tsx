@@ -32,16 +32,49 @@ export const GuruDashboard: React.FC = () => {
     openAbsensiFromJadwal
   } = useApp();
 
+  const allScheduleDays: Array<'Senin' | 'Selasa' | 'Rabu' | 'Kamis' | 'Jumat' | 'Sabtu'> = [
+    'Senin',
+    'Selasa',
+    'Rabu',
+    'Kamis',
+    'Jumat',
+    'Sabtu'
+  ];
   const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   const todayName = daysIndo[new Date().getDay()] || 'Senin';
   const effectiveDay = todayName === 'Minggu' ? 'Senin' : todayName;
 
-  const [selectedDay, setSelectedDay] = useState<string>(
-    effectiveDay === 'Sabtu' ? 'Senin' : effectiveDay
-  );
-
   const teacherGurusJadwal = jadwals.filter((j) => j.guruId === currentTeacher?.id);
-  const jadwalsDay = teacherGurusJadwal.filter((j) => j.hari === selectedDay);
+
+  // Hari disesuaikan dengan hari yang ada pada menu Jadwal Mengajar
+  const scheduleDays = React.useMemo(() => {
+    const daysWithSchedule = allScheduleDays.filter((day) =>
+      teacherGurusJadwal.some((j) => j.hari === day)
+    );
+    return daysWithSchedule.length > 0 ? daysWithSchedule : allScheduleDays;
+  }, [teacherGurusJadwal]);
+
+  const [selectedDay, setSelectedDay] = useState<string>(effectiveDay);
+
+  React.useEffect(() => {
+    if (scheduleDays.length > 0 && !scheduleDays.includes(selectedDay as any)) {
+      if (scheduleDays.includes(effectiveDay as any)) {
+        setSelectedDay(effectiveDay);
+      } else {
+        setSelectedDay(scheduleDays[0]);
+      }
+    }
+  }, [scheduleDays, selectedDay, effectiveDay]);
+
+  const jadwalsDay = React.useMemo(() => {
+    return [...teacherGurusJadwal]
+      .filter((j) => j.hari === selectedDay)
+      .sort((a, b) => {
+        const jamA = parseInt((a.jamKe || '1').split('-')[0].trim(), 10) || 1;
+        const jamB = parseInt((b.jamKe || '1').split('-')[0].trim(), 10) || 1;
+        return jamA - jamB;
+      });
+  }, [teacherGurusJadwal, selectedDay]);
 
   // Filter students taught by this teacher
   const classesTaught = currentTeacher?.kelasDiampu || [];
@@ -243,22 +276,40 @@ export const GuruDashboard: React.FC = () => {
               <p className="text-xs text-slate-500">Pilih hari untuk melihat alokasi kelas dan jam mengajar</p>
             </div>
 
-            {/* Day buttons */}
+            {/* Day buttons disesuaikan dengan hari di Menu Jadwal Mengajar */}
             <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
-              {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].map((day) => (
-                <button
-                  key={day}
-                  id={`btn-jadwal-day-${day.toLowerCase()}`}
-                  onClick={() => setSelectedDay(day)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${
-                    selectedDay === day
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                  }`}
-                >
-                  {day}
-                </button>
-              ))}
+              {scheduleDays.map((day) => {
+                const countDay = teacherGurusJadwal.filter((j) => j.hari === day).length;
+                const isSelected = selectedDay === day;
+                const isToday = day === effectiveDay;
+                return (
+                  <button
+                    key={day}
+                    id={`btn-jadwal-day-${day.toLowerCase()}`}
+                    onClick={() => setSelectedDay(day)}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : isToday
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    }`}
+                  >
+                    <span>{day}</span>
+                    {countDay > 0 && (
+                      <span
+                        className={`rounded-full px-1.5 py-0.2 text-[10px] font-extrabold ${
+                          isSelected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-200/80 text-slate-600'
+                        }`}
+                      >
+                        {countDay}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

@@ -96,7 +96,7 @@ export function resolveAssessmentColumns(
   const addCandidateCol = (col: any) => {
     if (!col || typeof col.id !== 'string' || !col.id) return;
     const jenis: 'formatif' | 'sumatif' = col.jenis === 'sumatif' ? 'sumatif' : 'formatif';
-    const nama = typeof col.nama === 'string' && col.nama.trim() ? col.nama.trim() : col.id;
+    const nama = typeof col.nama === 'string' ? col.nama : col.id;
     knownColsMap.set(col.id, { id: col.id, nama, jenis });
     if (!orderedCandidateIds.includes(col.id)) {
       orderedCandidateIds.push(col.id);
@@ -122,7 +122,7 @@ export function resolveAssessmentColumns(
         parsed.forEach((c) => {
           if (c && c.id && !knownColsMap.has(c.id)) {
             addCandidateCol(c);
-          } else if (c && c.id && knownColsMap.has(c.id) && c.nama) {
+          } else if (c && c.id && knownColsMap.has(c.id) && typeof c.nama === 'string') {
             // Preserve custom label if present
             const existing = knownColsMap.get(c.id)!;
             knownColsMap.set(c.id, { ...existing, nama: c.nama });

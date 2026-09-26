@@ -864,6 +864,22 @@ export const NilaiSiswa: React.FC = () => {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
+  // Rename a column inline (immediately syncs to localStorage and AppContext so Rekap & Leger Nilai matches)
+  const handleRenameColumn = (colId: string, newName: string) => {
+    const nextCols = columns.map((c) => (c.id === colId ? { ...c, nama: newName } : c));
+    saveColumnsToStorage(nextCols);
+    if (selectedClass && selectedMapel && nextCols.length > 0) {
+      persistScoresToContext(selectedClass, selectedMapel, selectedSemester, nextCols, studentScores);
+    }
+  };
+
+  const handleBlurColumnName = (col: AssessmentCol, index: number) => {
+    if (!col.nama || !col.nama.trim()) {
+      const fallbackName = `${col.jenis === 'sumatif' ? 'Sumatif' : 'Formatif'} ${index + 1}`;
+      handleRenameColumn(col.id, fallbackName);
+    }
+  };
+
   // Delete a column if needed (immediately syncs to AppContext so Rekap & Leger Nilai matches)
   const handleDeleteColumn = (colId: string) => {
     const colToDelete = columns.find((c) => c.id === colId);
@@ -1357,26 +1373,37 @@ export const NilaiSiswa: React.FC = () => {
                     )}
                   </tr>
 
-                  {/* BARIS 3: NAMA-NAMA PENILAIAN */}
+                  {/* BARIS 3: NAMA-NAMA PENILAIAN (BISA DIUBAH LANGSUNG) */}
                   <tr className="border-b border-slate-200 text-[11px]">
                     {orderedCols.map((col, idx) => (
                       <th
                         key={col.id}
-                        className={`px-3 py-2.5 text-center min-w-[130px] ${
+                        className={`px-2.5 py-2 text-center min-w-[140px] ${
                           idx < orderedCols.length - 1 ? 'border-r border-slate-200' : ''
                         } ${col.jenis === 'formatif' ? 'bg-emerald-50/40' : 'bg-blue-50/40'}`}
                       >
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="font-bold text-slate-800 text-[11px] leading-tight line-clamp-2" title={col.nama}>
-                            {col.nama}
-                          </span>
+                        <div className="flex items-center justify-center gap-1">
+                          <input
+                            type="text"
+                            value={col.nama}
+                            onChange={(e) => handleRenameColumn(col.id, e.target.value)}
+                            onBlur={() => handleBlurColumnName(col, idx)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            placeholder={`Nama ${col.jenis === 'sumatif' ? 'Sumatif' : 'Formatif'}`}
+                            title="Klik untuk mengubah nama penilaian"
+                            className="w-full min-w-[95px] max-w-[150px] rounded-lg border border-transparent hover:border-slate-300 focus:border-emerald-500 bg-white/70 focus:bg-white px-2 py-1 text-center font-bold text-slate-800 text-[11px] leading-tight focus:outline-none focus:ring-1 focus:ring-emerald-500 transition"
+                          />
                           <button
                             type="button"
                             onClick={() => handleDeleteColumn(col.id)}
                             title="Hapus kolom ini"
-                            className="no-print mt-0.5 text-slate-300 hover:text-rose-500 transition cursor-pointer"
+                            className="no-print shrink-0 p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </th>

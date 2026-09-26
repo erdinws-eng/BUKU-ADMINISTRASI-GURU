@@ -43,6 +43,7 @@ export const RekapLaporan: React.FC = () => {
     siswas,
     absensis,
     nilais,
+    saveNilaiBatch,
     jurnals,
     jadwals,
     protas,
@@ -291,6 +292,39 @@ export const RekapLaporan: React.FC = () => {
   const gradedList = recapData.gradedList;
   const avgClassGrade = recapData.classAvg;
   const passRate = recapData.passRate;
+
+  // Rename an assessment column inline & sync to localStorage + AppContext
+  const handleRenameColumn = (colId: string, newName: string) => {
+    const nextCols = recapData.columns.map((c) => (c.id === colId ? { ...c, nama: newName } : c));
+    const activeKey = `nilai_cols_${selectedClass.trim()}_${targetMapel.trim()}_${selectedSemester}`;
+    try {
+      localStorage.setItem(activeKey, JSON.stringify(nextCols));
+    } catch {
+      // ignore
+    }
+
+    const savedForClass = getSavedNilaisForFilter(
+      nilais,
+      selectedClass,
+      targetMapel,
+      selectedSemester,
+      currentTeacher?.id
+    );
+    if (savedForClass.length > 0) {
+      const updatedItems = savedForClass.map((item) => ({
+        ...item,
+        assessmentCols: nextCols
+      }));
+      saveNilaiBatch(updatedItems);
+    }
+  };
+
+  const handleBlurColumnName = (col: { id: string; nama: string; jenis: 'formatif' | 'sumatif' }, index: number) => {
+    if (!col.nama || !col.nama.trim()) {
+      const fallbackName = `${col.jenis === 'sumatif' ? 'Sumatif' : 'Formatif'} ${index + 1}`;
+      handleRenameColumn(col.id, fallbackName);
+    }
+  };
 
   const avgAttendanceRate = Math.round(
     attendanceRecap.reduce((sum, a) => sum + a.percent, 0) / (attendanceRecap.length || 1)
@@ -870,17 +904,29 @@ export const RekapLaporan: React.FC = () => {
                         </tr>
                       )}
 
-                      {/* BARIS 3: NAMA-NAMA PENILAIAN SESUAI YANG DIISI DI MENU NILAI SISWA */}
+                      {/* BARIS 3: NAMA-NAMA PENILAIAN SESUAI YANG DIISI DI MENU NILAI SISWA (BISA DIUBAH LANGSUNG) */}
                       {(assessmentCols.formatif.length > 0 || assessmentCols.sumatif.length > 0) && (
                         <tr className="border-b border-slate-200 bg-slate-100/60 text-[11px] font-semibold text-slate-700">
                           {/* Di bawah Formatif */}
-                          {assessmentCols.formatif.map((col: any) => (
+                          {assessmentCols.formatif.map((col: any, idx: number) => (
                             <th
                               key={col.id}
                               className="px-2.5 py-2 text-center border-r border-slate-200 bg-emerald-50/40"
-                              title={col.nama}
+                              title="Klik untuk mengubah nama penilaian"
                             >
-                              <span className="line-clamp-2 max-w-[120px] mx-auto">{col.nama}</span>
+                              <input
+                                type="text"
+                                value={col.nama}
+                                onChange={(e) => handleRenameColumn(col.id, e.target.value)}
+                                onBlur={() => handleBlurColumnName(col, idx)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                placeholder={`Formatif ${idx + 1}`}
+                                className="w-full min-w-[95px] max-w-[150px] mx-auto rounded-lg border border-transparent hover:border-slate-300 focus:border-emerald-500 bg-white/70 focus:bg-white px-2 py-1 text-center font-bold text-slate-800 text-[11px] leading-tight focus:outline-none focus:ring-1 focus:ring-emerald-500 transition"
+                              />
                             </th>
                           ))}
                           {/* Di bawah Sumatif */}
@@ -890,9 +936,21 @@ export const RekapLaporan: React.FC = () => {
                               className={`px-2.5 py-2 text-center bg-blue-50/40 ${
                                 idx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-200' : ''
                               }`}
-                              title={col.nama}
+                              title="Klik untuk mengubah nama penilaian"
                             >
-                              <span className="line-clamp-2 max-w-[120px] mx-auto">{col.nama}</span>
+                              <input
+                                type="text"
+                                value={col.nama}
+                                onChange={(e) => handleRenameColumn(col.id, e.target.value)}
+                                onBlur={() => handleBlurColumnName(col, idx)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                placeholder={`Sumatif ${idx + 1}`}
+                                className="w-full min-w-[95px] max-w-[150px] mx-auto rounded-lg border border-transparent hover:border-slate-300 focus:border-blue-500 bg-white/70 focus:bg-white px-2 py-1 text-center font-bold text-slate-800 text-[11px] leading-tight focus:outline-none focus:ring-1 focus:ring-blue-500 transition"
+                              />
                             </th>
                           ))}
                         </tr>

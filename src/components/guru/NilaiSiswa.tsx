@@ -24,12 +24,14 @@ import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
 import { printWebDocument } from '../../utils/printHelper';
 import { PageHeader } from '../shared/PageHeader';
 import { motion } from 'motion/react';
+import {
+  AssessmentCol,
+  resolveAssessmentColumns,
+  computeClassGradeRecap,
+  getSavedNilaisForFilter
+} from '../../utils/nilaiHelper';
 
-export interface AssessmentCol {
-  id: string;
-  nama: string;
-  jenis: 'formatif' | 'sumatif';
-}
+export type { AssessmentCol };
 
 const STANDARD_MAPEL_LIST = [
   'Pendidikan Agama dan Budi Pekerti',
@@ -74,7 +76,9 @@ export const NilaiSiswa: React.FC = () => {
     }
     // 3. Classes where teacher recorded grades
     if (nilais && currentTeacher?.id) {
-      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.kelas && set.add(n.kelas.trim()));
+      nilais
+        .filter((n) => !n.guruId || n.guruId === currentTeacher.id)
+        .forEach((n) => n.kelas && set.add(n.kelas.trim()));
     }
     // Fallback only if teacher profile has no classes configured at all
     if (set.size === 0) {
@@ -101,7 +105,9 @@ export const NilaiSiswa: React.FC = () => {
     }
     // 3. Subjects where teacher recorded grades
     if (nilais && currentTeacher?.id) {
-      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.mapel && set.add(n.mapel.trim()));
+      nilais
+        .filter((n) => !n.guruId || n.guruId === currentTeacher.id)
+        .forEach((n) => n.mapel && set.add(n.mapel.trim()));
     }
     // Fallback only if teacher has no subject assigned
     if (set.size === 0) {
@@ -113,10 +119,43 @@ export const NilaiSiswa: React.FC = () => {
     return Array.from(set).filter(Boolean);
   }, [currentTeacher?.mapelList, currentTeacher?.mapel, currentTeacher?.id, jadwals, nilais, mapels]);
 
-  // Filter states - empty by default as requested: "tampilan penilaian siswa kosongkan dulu dan akan muncul setelah mengisi filter kelas dan mata pelajaran"
-  const [selectedClass, setSelectedClass] = useState<string>('');
-  const [selectedMapel, setSelectedMapel] = useState<string>('');
-  const [selectedSemester, setSelectedSemester] = useState<'Ganjil' | 'Genap'>(schoolSettings.activeSemester || 'Ganjil');
+  // Filter states - empty on initial session, preserved when switching between Nilai Siswa and Rekap & Leger Nilai
+  const [selectedClass, setSelectedClass] = useState<string>(() => {
+    try {
+      const s = sessionStorage.getItem('BAG_session_nilai_filter');
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (parsed?.kelas) return parsed.kelas;
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  });
+  const [selectedMapel, setSelectedMapel] = useState<string>(() => {
+    try {
+      const s = sessionStorage.getItem('BAG_session_nilai_filter');
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (parsed?.mapel) return parsed.mapel;
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  });
+  const [selectedSemester, setSelectedSemester] = useState<'Ganjil' | 'Genap'>(() => {
+    try {
+      const s = sessionStorage.getItem('BAG_session_nilai_filter');
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (parsed?.semester === 'Ganjil' || parsed?.semester === 'Genap') return parsed.semester;
+      }
+    } catch {
+      // ignore
+    }
+    return schoolSettings.activeSemester || 'Ganjil';
+  });
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Storage key helper for assessment columns configuration per class, mapel, semester
@@ -128,28 +167,34 @@ export const NilaiSiswa: React.FC = () => {
   // Assessment columns for the selected class & subject
   const [columns, setColumns] = useState<AssessmentCol[]>([]);
 
-  // Load configured assessment columns from storage ONLY if explicitly saved previously
+  // Save active filter selection so Rekap & Laporan automatically opens the same class/mapel/semester
   useEffect(() => {
-    if (!configStorageKey) {
+    if (selectedClass && selectedMapel) {
+      const payload = JSON.stringify({ kelas: selectedClass, mapel: selectedMapel, semester: selectedSemester });
+      try {
+        localStorage.setItem('BAG_active_nilai_filter', payload);
+        sessionStorage.setItem('BAG_session_nilai_filter', payload);
+      } catch {
+        // ignore
+      }
+    }
+  }, [selectedClass, selectedMapel, selectedSemester]);
+
+  // Load configured assessment columns using shared single-source-of-truth helper
+  useEffect(() => {
+    if (!selectedClass || !selectedMapel) {
       setColumns([]);
       return;
     }
-    try {
-      const stored = localStorage.getItem(configStorageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setColumns(parsed);
-          return;
-        }
-      }
-    } catch {
-      // fallback
-    }
-
-    // Do NOT auto-generate default columns. Wait until teacher creates & saves them.
-    setColumns([]);
-  }, [configStorageKey]);
+    const resolved = resolveAssessmentColumns(
+      nilais,
+      selectedClass,
+      selectedMapel,
+      selectedSemester,
+      currentTeacher?.id
+    );
+    setColumns(resolved);
+  }, [selectedClass, selectedMapel, selectedSemester, nilais, currentTeacher?.id]);
 
   // Save columns helper
   const saveColumnsToStorage = (newCols: AssessmentCol[], key = configStorageKey) => {
@@ -166,10 +211,12 @@ export const NilaiSiswa: React.FC = () => {
     }
   };
 
-  // Filter students for the selected class
+  // Filter students for the selected class sorted A-Z by name
   const classStudents = useMemo(() => {
     if (!selectedClass) return [];
-    return siswas.filter((s) => s.kelas === selectedClass);
+    return siswas
+      .filter((s) => s.kelas === selectedClass)
+      .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
   }, [siswas, selectedClass]);
 
   // Group columns into Formatif and Sumatif
@@ -192,49 +239,123 @@ export const NilaiSiswa: React.FC = () => {
       return;
     }
 
+    const savedForClass = getSavedNilaisForFilter(
+      nilais,
+      selectedClass,
+      selectedMapel,
+      selectedSemester,
+      currentTeacher?.id
+    );
+
     const map: Record<string, Record<string, number>> = {};
 
     classStudents.forEach((student) => {
-      const existing = nilais.find(
-        (n) =>
-          n.siswaId === student.id &&
-          n.kelas === selectedClass &&
-          n.mapel === selectedMapel &&
-          n.semester === selectedSemester
-      );
+      let existing: NilaiSiswaItem | undefined = undefined;
+      for (let i = savedForClass.length - 1; i >= 0; i--) {
+        if (savedForClass[i].siswaId === student.id) {
+          existing = savedForClass[i];
+          break;
+        }
+      }
 
       const studentScoreObj: Record<string, number> = {};
 
       if (existing) {
-        // Only load scores that were actually saved
-        if (existing.customScores) {
+        if (existing.customScores && Object.keys(existing.customScores).length > 0) {
           Object.entries(existing.customScores).forEach(([k, v]) => {
             studentScoreObj[k] = typeof v === 'number' ? v : Number(v) || 0;
           });
+        } else {
+          if (existing.formatif1 !== undefined && existing.formatif1 > 0) studentScoreObj['formatif1'] = existing.formatif1;
+          if (existing.formatif2 !== undefined && existing.formatif2 > 0) studentScoreObj['formatif2'] = existing.formatif2;
+          if (existing.formatif3 !== undefined && existing.formatif3 > 0) studentScoreObj['formatif3'] = existing.formatif3;
+          if (existing.sts !== undefined && existing.sts > 0) studentScoreObj['sts'] = existing.sts;
+          if (existing.sas !== undefined && existing.sas > 0) studentScoreObj['sas'] = existing.sas;
         }
-        if (existing.formatif1 !== undefined) studentScoreObj['formatif1'] = existing.formatif1;
-        if (existing.formatif2 !== undefined) studentScoreObj['formatif2'] = existing.formatif2;
-        if (existing.formatif3 !== undefined) studentScoreObj['formatif3'] = existing.formatif3;
-        if (existing.sts !== undefined) studentScoreObj['sts'] = existing.sts;
-        if (existing.sas !== undefined) studentScoreObj['sas'] = existing.sas;
       }
 
       map[student.id] = studentScoreObj;
     });
 
     setStudentScores(map);
-  }, [selectedClass, selectedMapel, selectedSemester, classStudents.length, nilais, columns]);
+  }, [selectedClass, selectedMapel, selectedSemester, classStudents.length, nilais, columns, currentTeacher?.id]);
 
-  // Inline update grade for a student in a column
+  // Helper to build and persist NilaiSiswaItem batch for a given score map and column list
+  const persistScoresToContext = (
+    targetKelas: string,
+    targetMapel: string,
+    targetSemester: 'Ganjil' | 'Genap',
+    targetCols: AssessmentCol[],
+    scoreMap: Record<string, Record<string, number>>
+  ) => {
+    if (!targetKelas || !targetMapel) return [];
+    const targetStudents = siswas
+      .filter((s) => s.kelas === targetKelas)
+      .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+
+    const fCols = targetCols.filter((c) => c.jenis === 'formatif');
+    const sCols = targetCols.filter((c) => c.jenis === 'sumatif');
+
+    const itemsToSave: NilaiSiswaItem[] = targetStudents.map((student) => {
+      const scores = scoreMap[student.id] || {};
+      const existing = nilais.find(
+        (n) =>
+          n.siswaId === student.id &&
+          n.kelas === targetKelas &&
+          n.mapel === targetMapel &&
+          n.semester === targetSemester &&
+          (!n.guruId || !currentTeacher?.id || n.guruId === currentTeacher.id)
+      );
+
+      const f1 = fCols.length > 0 ? (scores[fCols[0].id] ?? 0) : 0;
+      const f2 = fCols.length > 1 ? (scores[fCols[1].id] ?? 0) : 0;
+      const f3 = fCols.length > 2 ? (scores[fCols[2].id] ?? 0) : 0;
+      const stsVal = sCols.length > 0 ? (scores[sCols[0].id] ?? 0) : 0;
+      const sasVal = sCols.length > 1 ? (scores[sCols[1].id] ?? 0) : 0;
+
+      const filteredCustomScores: Record<string, number> = {};
+      targetCols.forEach((col) => {
+        if (scores[col.id] !== undefined) {
+          filteredCustomScores[col.id] = scores[col.id];
+        }
+      });
+
+      return {
+        id: existing ? existing.id : `nil-${student.id}-${Date.now()}`,
+        guruId: currentTeacher?.id,
+        siswaId: student.id,
+        kelas: targetKelas,
+        mapel: targetMapel,
+        semester: targetSemester,
+        tahunAjaran: schoolSettings.academicYear,
+        formatif1: f1,
+        formatif2: f2,
+        formatif3: f3,
+        sts: stsVal,
+        sas: sasVal,
+        customScores: filteredCustomScores,
+        assessmentCols: targetCols
+      };
+    });
+
+    saveNilaiBatch(itemsToSave);
+    return itemsToSave;
+  };
+
+  // Inline update grade for a student in a column (auto-synced to AppContext so Rekap & Leger Nilai is always identical)
   const handleUpdateGrade = (siswaId: string, colId: string, val: number) => {
     const clamped = Math.min(100, Math.max(0, Number(val) || 0));
-    setStudentScores((prev) => ({
-      ...prev,
+    const nextScores: Record<string, Record<string, number>> = {
+      ...studentScores,
       [siswaId]: {
-        ...(prev[siswaId] || {}),
+        ...(studentScores[siswaId] || {}),
         [colId]: clamped
       }
-    }));
+    };
+    setStudentScores(nextScores);
+    if (selectedClass && selectedMapel && columns.length > 0) {
+      persistScoresToContext(selectedClass, selectedMapel, selectedSemester, columns, nextScores);
+    }
   };
 
   // Calculate average score for a student based only on columns with recorded values
@@ -259,55 +380,13 @@ export const NilaiSiswa: React.FC = () => {
   const handleSaveAll = () => {
     if (!selectedClass || !selectedMapel) return;
 
-    const itemsToSave: NilaiSiswaItem[] = classStudents.map((student) => {
-      const scores = studentScores[student.id] || {};
-
-      const existing = nilais.find(
-        (n) =>
-          n.siswaId === student.id &&
-          n.kelas === selectedClass &&
-          n.mapel === selectedMapel &&
-          n.semester === selectedSemester &&
-          (!n.guruId || !currentTeacher?.id || n.guruId === currentTeacher.id)
-      );
-
-      // Filter explicitly by assessment type
-      const formatifCols = columns.filter((c) => c.jenis === 'formatif');
-      const sumatifCols = columns.filter((c) => c.jenis === 'sumatif');
-
-      // Map back to formatif/sts/sas ONLY from respective types
-      const f1 = formatifCols.length > 0 ? (scores[formatifCols[0].id] ?? 0) : 0;
-      const f2 = formatifCols.length > 1 ? (scores[formatifCols[1].id] ?? 0) : 0;
-      const f3 = formatifCols.length > 2 ? (scores[formatifCols[2].id] ?? 0) : 0;
-      const stsVal = sumatifCols.length > 0 ? (scores[sumatifCols[0].id] ?? 0) : 0;
-      const sasVal = sumatifCols.length > 1 ? (scores[sumatifCols[1].id] ?? 0) : stsVal;
-
-      // Only preserve customScores for columns that are actually active
-      const filteredCustomScores: Record<string, number> = {};
-      columns.forEach((col) => {
-        if (scores[col.id] !== undefined) {
-          filteredCustomScores[col.id] = scores[col.id];
-        }
-      });
-
-      return {
-        id: existing ? existing.id : `nil-${student.id}-${Date.now()}`,
-        guruId: currentTeacher?.id,
-        siswaId: student.id,
-        kelas: selectedClass,
-        mapel: selectedMapel,
-        semester: selectedSemester,
-        tahunAjaran: schoolSettings.academicYear,
-        formatif1: f1,
-        formatif2: f2,
-        formatif3: f3,
-        sts: stsVal,
-        sas: sasVal,
-        customScores: filteredCustomScores
-      };
-    });
-
-    saveNilaiBatch(itemsToSave);
+    const itemsToSave = persistScoresToContext(
+      selectedClass,
+      selectedMapel,
+      selectedSemester,
+      columns,
+      studentScores
+    );
     setSavedSuccess(true);
     showToast(
       'success',
@@ -666,22 +745,19 @@ export const NilaiSiswa: React.FC = () => {
     // Target storage key
     const targetKey = `nilai_cols_${modalKelas}_${targetMapel}_${selectedSemester}`;
 
-    // Get existing columns or start fresh
-    let combinedCols: AssessmentCol[] = [];
-    try {
-      const existingStr = localStorage.getItem(targetKey);
-      if (existingStr) {
-        combinedCols = JSON.parse(existingStr);
-      }
-    } catch {
-      // ignore
-    }
+    // Get existing active columns from actual saved nilais records (prevents stale ghost columns)
+    const existingActiveCols = resolveAssessmentColumns(
+      nilais,
+      modalKelas,
+      targetMapel,
+      selectedSemester,
+      currentTeacher?.id
+    );
 
-    if (!Array.isArray(combinedCols) || combinedCols.length === 0) {
-      combinedCols = [...newAddedCols];
-    } else {
-      combinedCols = [...combinedCols, ...newAddedCols];
-    }
+    const combinedCols: AssessmentCol[] =
+      existingActiveCols.length > 0
+        ? [...existingActiveCols, ...newAddedCols]
+        : [...newAddedCols];
 
     // Persist columns
     saveColumnsToStorage(combinedCols, targetKey);
@@ -689,19 +765,35 @@ export const NilaiSiswa: React.FC = () => {
     // Set active filters to newly created assessment
     setSelectedClass(modalKelas);
     setSelectedMapel(targetMapel);
+    try {
+      localStorage.setItem(
+        'BAG_active_nilai_filter',
+        JSON.stringify({ kelas: modalKelas, mapel: targetMapel, semester: selectedSemester })
+      );
+    } catch {
+      // ignore
+    }
 
-    // Update student scores
-    const studentsInTargetClass = siswas.filter((s) => s.kelas === modalKelas);
+    // Update student scores sorted A-Z
+    const studentsInTargetClass = siswas
+      .filter((s) => s.kelas === modalKelas)
+      .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+
     const itemsToSave: NilaiSiswaItem[] = studentsInTargetClass.map((student) => {
       const existing = nilais.find(
         (n) =>
           n.siswaId === student.id &&
           n.kelas === modalKelas &&
           n.mapel === targetMapel &&
-          n.semester === selectedSemester
+          n.semester === selectedSemester &&
+          (!n.guruId || !currentTeacher?.id || n.guruId === currentTeacher.id)
       );
 
-      const currentCustom = { ...(existing?.customScores || {}) };
+      // Merge saved customScores and any current local studentScores
+      const currentCustom: Record<string, number> = {
+        ...(existing?.customScores || {}),
+        ...(modalKelas === selectedClass && targetMapel === selectedMapel ? (studentScores[student.id] || {}) : {})
+      };
 
       // Apply newly inputted scores for these new columns
       newAddedCols.forEach((col, idx) => {
@@ -718,7 +810,7 @@ export const NilaiSiswa: React.FC = () => {
       const f2 = formatifCols.length > 1 ? (currentCustom[formatifCols[1].id] ?? 0) : 0;
       const f3 = formatifCols.length > 2 ? (currentCustom[formatifCols[2].id] ?? 0) : 0;
       const sts = sumatifCols.length > 0 ? (currentCustom[sumatifCols[0].id] ?? 0) : 0;
-      const sas = sumatifCols.length > 1 ? (currentCustom[sumatifCols[1].id] ?? 0) : sts;
+      const sas = sumatifCols.length > 1 ? (currentCustom[sumatifCols[1].id] ?? 0) : 0;
 
       // Only keep scores for allActiveCols to avoid residual orphaned scores
       const filteredCustom: Record<string, number> = {};
@@ -730,6 +822,7 @@ export const NilaiSiswa: React.FC = () => {
 
       return {
         id: existing ? existing.id : `nil-${student.id}-${Date.now()}`,
+        guruId: currentTeacher?.id,
         siswaId: student.id,
         kelas: modalKelas,
         mapel: targetMapel,
@@ -740,7 +833,8 @@ export const NilaiSiswa: React.FC = () => {
         formatif3: f3,
         sts: sts,
         sas: sas,
-        customScores: filteredCustom
+        customScores: filteredCustom,
+        assessmentCols: allActiveCols
       };
     });
 
@@ -750,7 +844,7 @@ export const NilaiSiswa: React.FC = () => {
     setStudentScores((prev) => {
       const next = { ...prev };
       studentsInTargetClass.forEach((s) => {
-        const studentRow = next[s.id] || {};
+        const studentRow = { ...(next[s.id] || {}) };
         newAddedCols.forEach((col, idx) => {
           const val = modalStudentScores[s.id]?.[idx] ?? 0;
           studentRow[col.id] = val;
@@ -770,7 +864,7 @@ export const NilaiSiswa: React.FC = () => {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  // Delete a column if needed
+  // Delete a column if needed (immediately syncs to AppContext so Rekap & Leger Nilai matches)
   const handleDeleteColumn = (colId: string) => {
     const colToDelete = columns.find((c) => c.id === colId);
     showFeedbackModal({
@@ -782,17 +876,72 @@ export const NilaiSiswa: React.FC = () => {
       onConfirm: () => {
         const nextCols = columns.filter((c) => c.id !== colId);
         saveColumnsToStorage(nextCols);
-        showToast('info', 'Kolom Dihapus', `Kolom ${colToDelete?.nama || ''} telah dihapus.`);
+
+        if (nextCols.length === 0) {
+          setStudentScores({});
+          deleteNilaiByFilter(selectedClass, selectedMapel, selectedSemester);
+        } else {
+          const updatedScores: Record<string, Record<string, number>> = {};
+          Object.entries(studentScores).forEach(([sId, rowObj]) => {
+            const copy = { ...rowObj };
+            delete copy[colId];
+            updatedScores[sId] = copy;
+          });
+          setStudentScores(updatedScores);
+          persistScoresToContext(selectedClass, selectedMapel, selectedSemester, nextCols, updatedScores);
+        }
+
+        showToast('info', 'Kolom Dihapus', `Kolom ${colToDelete?.nama || ''} telah dihapus dan disinkronkan.`);
       }
     });
   };
 
-  // Summary stats for currently displayed class & subject
-  const studentsCount = classStudents.length;
-  const avgScoresList = classStudents.map((s) => getStudentAverage(s.id));
-  const gradedList = avgScoresList.filter((score) => score > 0);
-  const classAvg = gradedList.length > 0 ? Math.round(gradedList.reduce((a, b) => a + b, 0) / gradedList.length) : 0;
-  const passedStudents = gradedList.filter((score) => score >= schoolSettings.kkmDefault).length;
+  // Summary stats for currently displayed class & subject using shared single-source-of-truth recap
+  const recapData = useMemo(
+    () =>
+      computeClassGradeRecap({
+        siswas,
+        nilais,
+        kelas: selectedClass,
+        mapel: selectedMapel,
+        semester: selectedSemester,
+        guruId: currentTeacher?.id,
+        kkm: schoolSettings.kkmDefault,
+        columnsOverride: columns,
+        studentScoresOverride: studentScores
+      }),
+    [siswas, nilais, selectedClass, selectedMapel, selectedSemester, currentTeacher?.id, schoolSettings.kkmDefault, columns, studentScores]
+  );
+
+  const studentsCount = recapData.studentsCount;
+  const gradedList = recapData.gradedList;
+  const classAvg = recapData.classAvg;
+  const passedStudents = recapData.passedCount;
+  const passRate = recapData.passRate;
+
+  // Saved class/mapel pairs for quick 1-click access
+  const savedGradeGroups = useMemo(() => {
+    const groups = new Map<string, { kelas: string; mapel: string; semester: 'Ganjil' | 'Genap'; count: number }>();
+    nilais.forEach((n) => {
+      if (!n.kelas || !n.mapel) return;
+      if (n.guruId && currentTeacher?.id && n.guruId !== currentTeacher.id) return;
+      const sem = (n.semester || 'Ganjil') as 'Ganjil' | 'Genap';
+      const key = `${n.kelas}_${n.mapel}_${sem}`;
+      const hasAnyScore =
+        (n.customScores && Object.values(n.customScores).some((v) => Number(v) > 0)) ||
+        n.formatif1 > 0 ||
+        n.formatif2 > 0 ||
+        n.formatif3 > 0 ||
+        n.sts > 0 ||
+        n.sas > 0;
+      if (hasAnyScore) {
+        const cur = groups.get(key) || { kelas: n.kelas, mapel: n.mapel, semester: sem, count: 0 };
+        cur.count += 1;
+        groups.set(key, cur);
+      }
+    });
+    return Array.from(groups.values());
+  }, [nilais, currentTeacher?.id]);
 
   // Determine if both filters are active
   const isFilterActive = Boolean(selectedClass && selectedMapel);
@@ -917,7 +1066,23 @@ export const NilaiSiswa: React.FC = () => {
               <select
                 id="select-kelas-filter"
                 value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
+                onChange={(e) => {
+                  const newKelas = e.target.value;
+                  setSelectedClass(newKelas);
+                  if (newKelas) {
+                    // If current mapel is empty or has no grades in newKelas, auto-select mapel that has saved grades for newKelas
+                    const hasCurrent =
+                      selectedMapel &&
+                      getSavedNilaisForFilter(nilais, newKelas, selectedMapel, selectedSemester, currentTeacher?.id).length > 0;
+                    if (!hasCurrent) {
+                      const matchedGroup = savedGradeGroups.find((g) => g.kelas === newKelas);
+                      if (matchedGroup && availableMapels.includes(matchedGroup.mapel)) {
+                        setSelectedMapel(matchedGroup.mapel);
+                        setSelectedSemester(matchedGroup.semester);
+                      }
+                    }
+                  }
+                }}
                 className={`rounded-xl border px-3 py-2 text-xs font-bold transition focus:border-emerald-500 focus:outline-none ${
                   selectedClass
                     ? 'border-emerald-300 bg-emerald-50/50 text-emerald-950'
@@ -939,7 +1104,17 @@ export const NilaiSiswa: React.FC = () => {
               <select
                 id="select-mapel-filter"
                 value={selectedMapel}
-                onChange={(e) => setSelectedMapel(e.target.value)}
+                onChange={(e) => {
+                  const newMapel = e.target.value;
+                  setSelectedMapel(newMapel);
+                  if (newMapel && !selectedClass) {
+                    const matchedGroup = savedGradeGroups.find((g) => g.mapel === newMapel);
+                    if (matchedGroup && availableClasses.includes(matchedGroup.kelas)) {
+                      setSelectedClass(matchedGroup.kelas);
+                      setSelectedSemester(matchedGroup.semester);
+                    }
+                  }
+                }}
                 className={`rounded-xl border px-3 py-2 text-xs font-bold transition focus:border-emerald-500 focus:outline-none max-w-xs ${
                   selectedMapel
                     ? 'border-emerald-300 bg-emerald-50/50 text-emerald-950'
@@ -985,7 +1160,7 @@ export const NilaiSiswa: React.FC = () => {
                   <div className="rounded-lg bg-emerald-50 px-2.5 py-1 border border-emerald-200 text-emerald-800">
                     <span className="font-semibold">Tuntas: </span>
                     <span className="font-bold">
-                      {passedStudents}/{studentsCount || 1} Siswa ({Math.round((passedStudents / (studentsCount || 1)) * 100)}%)
+                      {passedStudents}/{gradedList.length || 0} Siswa Dinilai ({passRate}%)
                     </span>
                   </div>
                 </>
@@ -1036,18 +1211,40 @@ export const NilaiSiswa: React.FC = () => {
 
           {/* Quick Select Button for Teacher */}
           {currentTeacher && (
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedClass(availableClasses[0] || '7A');
-                  setSelectedMapel(currentTeacher.mapel && currentTeacher.mapel !== 'Mata Pelajaran' ? currentTeacher.mapel : availableMapels[0] || 'Matematika');
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 shadow-xs hover:bg-emerald-50 transition cursor-pointer"
-              >
-                <Sparkles className="h-4 w-4 text-emerald-600" />
-                <span>Pilih Otomatis: Kelas {availableClasses[0] || '7A'} | {currentTeacher.mapel || 'Matematika'}</span>
-              </button>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+              {savedGradeGroups.length > 0 ? (
+                savedGradeGroups.map((grp) => (
+                  <button
+                    key={`${grp.kelas}_${grp.mapel}_${grp.semester}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedClass(grp.kelas);
+                      setSelectedMapel(grp.mapel);
+                      setSelectedSemester(grp.semester);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-200 hover:bg-emerald-700 transition cursor-pointer"
+                  >
+                    <Sparkles className="h-4 w-4 text-emerald-100" />
+                    <span>
+                      Buka Nilai Tersimpan: Kelas {grp.kelas} | {grp.mapel} ({grp.count} Siswa)
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedClass(availableClasses[0] || '7A');
+                    setSelectedMapel(availableMapels[0] || 'Matematika');
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 shadow-xs hover:bg-emerald-50 transition cursor-pointer"
+                >
+                  <Sparkles className="h-4 w-4 text-emerald-600" />
+                  <span>
+                    Pilih Otomatis: Kelas {availableClasses[0] || '7A'} | {availableMapels[0] || 'Matematika'}
+                  </span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1225,8 +1422,8 @@ export const NilaiSiswa: React.FC = () => {
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={val !== undefined ? val : ''}
-                                  placeholder="0"
+                                  value={val !== undefined && val > 0 ? val : ''}
+                                  placeholder="-"
                                   onChange={(e) => handleUpdateGrade(siswa.id, col.id, e.target.value === '' ? 0 : Number(e.target.value))}
                                   className="w-16 rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-center font-bold text-xs text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                                 />
@@ -1517,6 +1714,7 @@ export const NilaiSiswa: React.FC = () => {
                       <tbody className="divide-y divide-slate-100 text-slate-700">
                         {siswas
                           .filter((s) => s.kelas === modalKelas)
+                          .sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
                           .map((siswa, idx) => {
                             const rowScores = modalStudentScores[siswa.id] || [];
 

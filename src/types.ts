@@ -154,6 +154,7 @@ export interface NilaiSiswaItem {
   sas: number; // Sumatif Akhir Semester
   deskripsiCapaian?: string;
   customScores?: Record<string, number>;
+  assessmentCols?: Array<{ id: string; nama: string; jenis: 'formatif' | 'sumatif' }>;
 }
 
 export interface ProtaItem {

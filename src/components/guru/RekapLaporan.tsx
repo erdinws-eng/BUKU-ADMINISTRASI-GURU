@@ -12,10 +12,15 @@ import {
   CheckCircle2,
   PieChart,
   AlertCircle,
-  Download
+  Download,
+  Sparkles
 } from 'lucide-react';
 import { PrintHeader, PrintSignatures } from '../shared/PrintHeader';
 import { printWebDocument } from '../../utils/printHelper';
+import {
+  computeClassGradeRecap,
+  getSavedNilaisForFilter
+} from '../../utils/nilaiHelper';
 
 const STANDARD_MAPEL_LIST = [
   'Pendidikan Agama dan Budi Pekerti',
@@ -62,7 +67,9 @@ export const RekapLaporan: React.FC = () => {
     }
     // 3. Classes where teacher recorded grades
     if (nilais && currentTeacher?.id) {
-      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.kelas && set.add(n.kelas.trim()));
+      nilais
+        .filter((n) => !n.guruId || n.guruId === currentTeacher.id)
+        .forEach((n) => n.kelas && set.add(n.kelas.trim()));
     }
     // Fallback only if teacher profile has no classes configured at all
     if (set.size === 0) {
@@ -75,8 +82,6 @@ export const RekapLaporan: React.FC = () => {
     }
     return Array.from(set).sort();
   }, [currentTeacher?.kelasDiampu, currentTeacher?.id, jadwals, nilais, siswas]);
-
-  const [selectedClass, setSelectedClass] = useState<string>(availableClasses[0] || '7A');
 
   // Available subjects: strictly subjects taught by current teacher
   const availableMapels = useMemo(() => {
@@ -93,7 +98,9 @@ export const RekapLaporan: React.FC = () => {
     }
     // 3. Subjects where teacher recorded grades
     if (nilais && currentTeacher?.id) {
-      nilais.filter((n) => n.guruId === currentTeacher.id).forEach((n) => n.mapel && set.add(n.mapel.trim()));
+      nilais
+        .filter((n) => !n.guruId || n.guruId === currentTeacher.id)
+        .forEach((n) => n.mapel && set.add(n.mapel.trim()));
     }
     // Fallback only if teacher has no subject configured at all
     if (set.size === 0) {
@@ -105,12 +112,100 @@ export const RekapLaporan: React.FC = () => {
     return Array.from(set).filter(Boolean);
   }, [currentTeacher?.mapelList, currentTeacher?.mapel, currentTeacher?.id, jadwals, nilais, mapels]);
 
-  const [selectedMapel, setSelectedMapel] = useState<string>(() => {
-    if (currentTeacher?.mapel && currentTeacher.mapel !== 'Mata Pelajaran') {
-      return currentTeacher.mapel.split(',')[0].trim();
+  // Saved class/mapel pairs that have actual grades recorded
+  const savedGradeGroups = useMemo(() => {
+    const groups = new Map<string, { kelas: string; mapel: string; semester: 'Ganjil' | 'Genap'; count: number }>();
+    nilais.forEach((n) => {
+      if (!n.kelas || !n.mapel) return;
+      if (n.guruId && currentTeacher?.id && n.guruId !== currentTeacher.id) return;
+      const sem = (n.semester || 'Ganjil') as 'Ganjil' | 'Genap';
+      const key = `${n.kelas}_${n.mapel}_${sem}`;
+      const hasAnyScore =
+        (n.customScores && Object.values(n.customScores).some((v) => Number(v) > 0)) ||
+        n.formatif1 > 0 ||
+        n.formatif2 > 0 ||
+        n.formatif3 > 0 ||
+        n.sts > 0 ||
+        n.sas > 0;
+      if (hasAnyScore) {
+        const cur = groups.get(key) || { kelas: n.kelas, mapel: n.mapel, semester: sem, count: 0 };
+        cur.count += 1;
+        groups.set(key, cur);
+      }
+    });
+    return Array.from(groups.values());
+  }, [nilais, currentTeacher?.id]);
+
+  // Read last active filter from Nilai Siswa or find first class/mapel with saved grades
+  const initialFilter = useMemo(() => {
+    try {
+      const sessionFilterStr =
+        sessionStorage.getItem('BAG_session_nilai_filter') ||
+        localStorage.getItem('BAG_active_nilai_filter');
+      if (sessionFilterStr) {
+        const parsed = JSON.parse(sessionFilterStr);
+        if (parsed && parsed.kelas && parsed.mapel) {
+          // Verify if this filter has saved grades, or if we should use it directly
+          return {
+            kelas: parsed.kelas as string,
+            mapel: parsed.mapel as string,
+            semester: (parsed.semester || schoolSettings.activeSemester || 'Ganjil') as 'Ganjil' | 'Genap'
+          };
+        }
+      }
+    } catch {
+      // ignore
     }
-    return 'Informatika';
-  });
+
+    // Check if there is any saved grade group for this teacher
+    if (savedGradeGroups.length > 0) {
+      return {
+        kelas: savedGradeGroups[0].kelas,
+        mapel: savedGradeGroups[0].mapel,
+        semester: savedGradeGroups[0].semester
+      };
+    }
+
+    return {
+      kelas: availableClasses[0] || '7A',
+      mapel:
+        currentTeacher?.mapel && currentTeacher.mapel !== 'Mata Pelajaran'
+          ? currentTeacher.mapel.split(',')[0].trim()
+          : availableMapels[0] || 'Informatika',
+      semester: (schoolSettings.activeSemester || 'Ganjil') as 'Ganjil' | 'Genap'
+    };
+  }, []);
+
+  const [selectedClass, setSelectedClass] = useState<string>(initialFilter.kelas);
+  const [selectedMapel, setSelectedMapel] = useState<string>(initialFilter.mapel);
+  const [selectedSemester, setSelectedSemester] = useState<'Ganjil' | 'Genap'>(initialFilter.semester);
+
+  // If nilais finishes hydrating from cloud and current filter has no grades while another savedGradeGroup does, sync to it if user hasn't explicitly picked a session filter
+  React.useEffect(() => {
+    if (savedGradeGroups.length > 0) {
+      const hasCurrent =
+        getSavedNilaisForFilter(nilais, selectedClass, selectedMapel, selectedSemester, currentTeacher?.id).length > 0;
+      if (!hasCurrent && !sessionStorage.getItem('BAG_session_nilai_filter')) {
+        const first = savedGradeGroups[0];
+        setSelectedClass(first.kelas);
+        setSelectedMapel(first.mapel);
+        setSelectedSemester(first.semester);
+      }
+    }
+  }, [savedGradeGroups.length]);
+
+  // Save filter changes back to BAG_active_nilai_filter & BAG_session_nilai_filter so both menus stay in sync
+  React.useEffect(() => {
+    if (selectedClass && selectedMapel) {
+      const payload = JSON.stringify({ kelas: selectedClass, mapel: selectedMapel, semester: selectedSemester });
+      try {
+        localStorage.setItem('BAG_active_nilai_filter', payload);
+        sessionStorage.setItem('BAG_session_nilai_filter', payload);
+      } catch {
+        // ignore
+      }
+    }
+  }, [selectedClass, selectedMapel, selectedSemester]);
 
   // Keep selectedClass synchronized with teacher's assigned classes
   React.useEffect(() => {
@@ -137,122 +232,6 @@ export const RekapLaporan: React.FC = () => {
 
   // Target Mata Pelajaran
   const targetMapel = selectedMapel || currentTeacher?.mapel || availableMapels[0] || '';
-
-  // Ambil konfigurasi penilaian formatif & sumatif SESUAI YANG DIATUR/DISIMPAN OLEH GURU
-  // PENTING: Jika guru hanya membuat sumatif (tanpa formatif), formatif HARUS KOSONG ([]).
-  // Jangan sekali-kali menginjeksi default formatif jika guru hanya menginput sumatif!
-  const assessmentCols = useMemo(() => {
-    try {
-      const activeKey = `nilai_cols_${selectedClass}_${targetMapel}_${schoolSettings.activeSemester}`;
-      const raw = localStorage.getItem(activeKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const formatif = parsed.filter((c: any) => c.jenis === 'formatif');
-          const sumatif = parsed.filter((c: any) => c.jenis === 'sumatif');
-          return {
-            formatif,
-            sumatif
-          };
-        }
-      }
-
-      // Cek apakah ada key tanpa suffix semester
-      const matchPrefix = `nilai_cols_${selectedClass}_${targetMapel}`;
-      const matchingKeys = Object.keys(localStorage).filter((k) => k.startsWith(matchPrefix));
-      if (matchingKeys.length > 0) {
-        const raw2 = localStorage.getItem(matchingKeys[0]);
-        if (raw2) {
-          const parsed2 = JSON.parse(raw2);
-          if (Array.isArray(parsed2) && parsed2.length > 0) {
-            const formatif = parsed2.filter((c: any) => c.jenis === 'formatif');
-            const sumatif = parsed2.filter((c: any) => c.jenis === 'sumatif');
-            return {
-              formatif,
-              sumatif
-            };
-          }
-        }
-      }
-    } catch {
-      // fallback
-    }
-
-    // Jika tidak ada konfigurasi di localStorage, periksa langsung data `nilais` yang tersimpan
-    const savedForClass = nilais.filter(
-      (item) =>
-        item.kelas === selectedClass &&
-        (!targetMapel || item.mapel === targetMapel) &&
-        item.semester === schoolSettings.activeSemester
-    );
-
-    if (savedForClass.length > 0) {
-      const formatifCols: Array<{ id: string; nama: string; jenis: 'formatif' }> = [];
-      const sumatifCols: Array<{ id: string; nama: string; jenis: 'sumatif' }> = [];
-      const seenColIds = new Set<string>();
-
-      savedForClass.forEach((item) => {
-        const hasCustom = item.customScores && Object.keys(item.customScores).length > 0;
-        if (hasCustom) {
-          Object.keys(item.customScores!).forEach((k) => {
-            if (!seenColIds.has(k)) {
-              seenColIds.add(k);
-              const lower = k.toLowerCase();
-              if (lower.startsWith('sumatif') || lower.startsWith('sts') || lower.startsWith('sas')) {
-                const label = k.startsWith('sumatif_') ? 'Sumatif' : k.toUpperCase();
-                sumatifCols.push({ id: k, nama: label, jenis: 'sumatif' });
-              } else if (lower.startsWith('formatif')) {
-                const label = k.startsWith('formatif_') ? 'Formatif' : k.toUpperCase();
-                formatifCols.push({ id: k, nama: label, jenis: 'formatif' });
-              }
-            }
-          });
-        } else {
-          // Legacy fields: Hanya tambahkan jika customScores TIDAK ADA sama sekali
-          if (typeof item.formatif1 === 'number' && item.formatif1 > 0 && !seenColIds.has('formatif1')) {
-            seenColIds.add('formatif1');
-            formatifCols.push({ id: 'formatif1', nama: 'Formatif 1 (TP 1)', jenis: 'formatif' });
-          }
-          if (typeof item.formatif2 === 'number' && item.formatif2 > 0 && !seenColIds.has('formatif2')) {
-            seenColIds.add('formatif2');
-            formatifCols.push({ id: 'formatif2', nama: 'Formatif 2 (TP 2)', jenis: 'formatif' });
-          }
-          if (typeof item.formatif3 === 'number' && item.formatif3 > 0 && !seenColIds.has('formatif3')) {
-            seenColIds.add('formatif3');
-            formatifCols.push({ id: 'formatif3', nama: 'Formatif 3 (TP 3)', jenis: 'formatif' });
-          }
-          if (typeof item.sts === 'number' && item.sts > 0 && !seenColIds.has('sts')) {
-            seenColIds.add('sts');
-            sumatifCols.push({ id: 'sts', nama: 'STS', jenis: 'sumatif' });
-          }
-          if (typeof item.sas === 'number' && item.sas > 0 && !seenColIds.has('sas')) {
-            seenColIds.add('sas');
-            sumatifCols.push({ id: 'sas', nama: 'SAS', jenis: 'sumatif' });
-          }
-        }
-      });
-
-      if (formatifCols.length > 0 || sumatifCols.length > 0) {
-        return {
-          formatif: formatifCols,
-          sumatif: sumatifCols
-        };
-      }
-    }
-
-    // Default Kurikulum Merdeka HANYA jika kelas belum memiliki data sama sekali
-    return {
-      formatif: [
-        { id: 'formatif1', nama: 'Formatif 1 (TP 1)', jenis: 'formatif' },
-        { id: 'formatif2', nama: 'Formatif 2 (TP 2)', jenis: 'formatif' },
-        { id: 'formatif3', nama: 'Formatif 3 (TP 3)', jenis: 'formatif' },
-      ],
-      sumatif: [
-        { id: 'sts', nama: 'STS', jenis: 'sumatif' },
-        { id: 'sas', nama: 'SAS', jenis: 'sumatif' },
-      ]
-    };
-  }, [selectedClass, targetMapel, schoolSettings.activeSemester, nilais]);
 
   // Compute attendance stats per student
   const attendanceRecap = classStudents.map((siswa) => {
@@ -285,122 +264,34 @@ export const RekapLaporan: React.FC = () => {
     };
   });
 
-  // Compute grade recap for class sesuai kolom formatif & sumatif yang diisi di menu nilai siswa
-  const gradeRecap = classStudents.map((siswa) => {
-    const n = nilais.find(
-      (item) =>
-        item.siswaId === siswa.id &&
-        item.kelas === selectedClass &&
-        (!targetMapel || item.mapel === targetMapel) &&
-        item.semester === schoolSettings.activeSemester &&
-        (!item.guruId || !currentTeacher?.id || item.guruId === currentTeacher.id)
-    );
+  // Single Source of Truth: mengambil & mengumpulkan data nilai persis dari Menu Nilai Siswa
+  const recapData = useMemo(
+    () =>
+      computeClassGradeRecap({
+        siswas,
+        nilais,
+        kelas: selectedClass,
+        mapel: targetMapel,
+        semester: selectedSemester,
+        guruId: currentTeacher?.id,
+        kkm: schoolSettings.kkmDefault
+      }),
+    [siswas, nilais, selectedClass, targetMapel, selectedSemester, currentTeacher?.id, schoolSettings.kkmDefault]
+  );
 
-    // Nilai tiap kolom Formatif (HANYA MENCARI NILAI FORMATIF, TIDAK BOLEH MENGAMBIL NILAI SUMATIF)
-    const formatifScores: Record<string, number | undefined> = {};
-    assessmentCols.formatif.forEach((col: any) => {
-      let val: number | undefined = undefined;
-      if (n) {
-        if (n.customScores && Object.keys(n.customScores).length > 0) {
-          if (n.customScores[col.id] !== undefined) {
-            const rawV = n.customScores[col.id];
-            if (typeof rawV === 'number') val = rawV;
-          }
-        } else {
-          if (col.id === 'formatif1' && typeof n.formatif1 === 'number' && n.formatif1 > 0) {
-            val = n.formatif1;
-          } else if (col.id === 'formatif2' && typeof n.formatif2 === 'number' && n.formatif2 > 0) {
-            val = n.formatif2;
-          } else if (col.id === 'formatif3' && typeof n.formatif3 === 'number' && n.formatif3 > 0) {
-            val = n.formatif3;
-          }
-        }
-      }
-      formatifScores[col.id] = val;
-    });
+  const assessmentCols = useMemo(
+    () => ({
+      formatif: recapData.formatifCols,
+      sumatif: recapData.sumatifCols
+    }),
+    [recapData.formatifCols, recapData.sumatifCols]
+  );
 
-    // Nilai tiap kolom Sumatif (HANYA MENCARI NILAI SUMATIF)
-    const sumatifScores: Record<string, number | undefined> = {};
-    assessmentCols.sumatif.forEach((col: any, sIdx: number) => {
-      let val: number | undefined = undefined;
-      if (n) {
-        if (n.customScores && n.customScores[col.id] !== undefined) {
-          const rawV = n.customScores[col.id];
-          if (typeof rawV === 'number') val = rawV;
-        } else if ((col.id === 'sts' || col.nama.toLowerCase().includes('sts') || sIdx === 0) && typeof n.sts === 'number' && n.sts > 0) {
-          val = n.sts;
-        } else if ((col.id === 'sas' || col.nama.toLowerCase().includes('sas') || sIdx === 1) && typeof n.sas === 'number' && n.sas > 0) {
-          val = n.sas;
-        }
-      }
-      sumatifScores[col.id] = val;
-    });
+  const gradeRecap = recapData.rows;
+  const gradedList = recapData.gradedList;
+  const avgClassGrade = recapData.classAvg;
+  const passRate = recapData.passRate;
 
-    // Periksa apakah siswa memiliki nilai yang valid terinput
-    const fVals = Object.values(formatifScores).filter((v): v is number => typeof v === 'number' && v > 0);
-    const sVals = Object.values(sumatifScores).filter((v): v is number => typeof v === 'number' && v > 0);
-    const hasScore = fVals.length > 0 || sVals.length > 0;
-
-    if (!hasScore) {
-      return {
-        siswa,
-        hasScore: false,
-        formatifScores,
-        sumatifScores,
-        avgF: 0,
-        stsVal: 0,
-        sasVal: 0,
-        finalScore: 0,
-        isPassed: false
-      };
-    }
-
-    let finalScore = 0;
-    const avgF = fVals.length > 0 ? Math.round(fVals.reduce((a, b) => a + b, 0) / fVals.length) : 0;
-    const stsVal = (typeof sumatifScores['sts'] === 'number' ? sumatifScores['sts'] : undefined) ?? sVals[0] ?? 0;
-    const sasVal = (typeof sumatifScores['sas'] === 'number' ? sumatifScores['sas'] : undefined) ?? sVals[1] ?? stsVal;
-
-    if (fVals.length > 0 && sVals.length > 0) {
-      // Guru mengisi Formatif dan Sumatif -> pembobotan resmi Kurikulum Merdeka
-      const wF = schoolSettings.gradingWeight.formatif / 100;
-      const wSts = schoolSettings.gradingWeight.sts / 100;
-      const wSas = schoolSettings.gradingWeight.sas / 100;
-      finalScore = Math.round(avgF * wF + stsVal * wSts + sasVal * wSas);
-    } else if (sVals.length > 0) {
-      // Guru HANYA mengisi Sumatif -> nilai akhir adalah rerata nilai sumatif
-      finalScore = Math.round(sVals.reduce((a, b) => a + b, 0) / sVals.length);
-    } else if (fVals.length > 0) {
-      // Guru HANYA mengisi Formatif -> nilai akhir adalah rerata formatif
-      finalScore = avgF;
-    }
-
-    return {
-      siswa,
-      hasScore: true,
-      formatifScores,
-      sumatifScores,
-      avgF,
-      stsVal,
-      sasVal,
-      finalScore,
-      isPassed: finalScore >= schoolSettings.kkmDefault
-    };
-  });
-
-  // Sort grade recap: students with recorded scores on top, ordered by score descending
-  gradeRecap.sort((a, b) => {
-    if (a.hasScore && !b.hasScore) return -1;
-    if (!a.hasScore && b.hasScore) return 1;
-    return b.finalScore - a.finalScore;
-  });
-
-  const gradedList = gradeRecap.filter((g) => g.hasScore);
-  const avgClassGrade = gradedList.length > 0
-    ? Math.round(gradedList.reduce((sum, g) => sum + g.finalScore, 0) / gradedList.length)
-    : 0;
-  const passRate = gradedList.length > 0
-    ? Math.round((gradedList.filter((g) => g.isPassed).length / gradedList.length) * 100)
-    : 0;
   const avgAttendanceRate = Math.round(
     attendanceRecap.reduce((sum, a) => sum + a.percent, 0) / (attendanceRecap.length || 1)
   );
@@ -659,7 +550,7 @@ export const RekapLaporan: React.FC = () => {
             ? `LAPORAN HASIL PENILAIAN SISWA (LEGER) KELAS ${selectedClass}`
             : `REKAPITULASI KETERCAPAIAN JURNAL MENGAJAR KELAS ${selectedClass}`
         }
-        subtitle={`Mata Pelajaran: ${targetMapel} | Tahun Ajaran: ${schoolSettings.academicYear} (${schoolSettings.activeSemester})`}
+        subtitle={`Mata Pelajaran: ${targetMapel} | Tahun Ajaran: ${schoolSettings.academicYear} (Semester ${selectedSemester})`}
       />
 
       {/* Screen Controls with PageHeader */}
@@ -675,7 +566,20 @@ export const RekapLaporan: React.FC = () => {
                 <select
                   id="select-kelas-rekap"
                   value={selectedClass}
-                  onChange={(e) => setSelectedClass(e.target.value)}
+                  onChange={(e) => {
+                    const newKelas = e.target.value;
+                    setSelectedClass(newKelas);
+                    const hasCurrent =
+                      getSavedNilaisForFilter(nilais, newKelas, selectedMapel, selectedSemester, currentTeacher?.id)
+                        .length > 0;
+                    if (!hasCurrent) {
+                      const matchedGroup = savedGradeGroups.find((g) => g.kelas === newKelas);
+                      if (matchedGroup && availableMapels.includes(matchedGroup.mapel)) {
+                        setSelectedMapel(matchedGroup.mapel);
+                        setSelectedSemester(matchedGroup.semester);
+                      }
+                    }
+                  }}
                   className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
                 >
                   {availableClasses.map((k) => (
@@ -699,6 +603,19 @@ export const RekapLaporan: React.FC = () => {
                       {m}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-2xs">
+                <span className="text-xs font-semibold text-slate-500">Semester:</span>
+                <select
+                  id="select-semester-rekap"
+                  value={selectedSemester}
+                  onChange={(e) => setSelectedSemester(e.target.value as 'Ganjil' | 'Genap')}
+                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                >
+                  <option value="Ganjil">Ganjil</option>
+                  <option value="Genap">Genap</option>
                 </select>
               </div>
 
@@ -745,8 +662,8 @@ export const RekapLaporan: React.FC = () => {
             },
             {
               label: 'Ketuntasan Belajar',
-              value: gradedList.length > 0 ? `${passRate}%` : '-',
-              helper: `${gradedList.filter((g) => g.isPassed).length} dari ${gradeRecap.length} Siswa`
+              value: gradedList.length > 0 ? `${recapData.passedCount} (${passRate}%)` : '-',
+              helper: gradedList.length > 0 ? `${recapData.passedCount} dari ${gradedList.length} Siswa Dinilai` : `Total ${gradeRecap.length} Siswa`
             },
             {
               label: 'Presensi Rata-Rata',
@@ -821,9 +738,43 @@ export const RekapLaporan: React.FC = () => {
                 Tabel nilai disembunyikan karena belum ada penilaian yang diisi atau disimpan untuk kelas <span className="font-bold text-slate-700">{selectedClass}</span> pada mata pelajaran <span className="font-bold text-slate-700">{targetMapel}</span>.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                {savedGradeGroups.length > 0 && (
+                  <div className="w-full flex flex-wrap items-center justify-center gap-2 mb-1">
+                    {savedGradeGroups.map((grp) => (
+                      <button
+                        key={`${grp.kelas}_${grp.mapel}_${grp.semester}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedClass(grp.kelas);
+                          setSelectedMapel(grp.mapel);
+                          setSelectedSemester(grp.semester);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>
+                          Lihat Leger Tersimpan: Kelas {grp.kelas} • {grp.mapel} ({grp.count} Siswa)
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={() => setActiveMenu('guru-nilai')}
+                  onClick={() => {
+                    const payload = JSON.stringify({
+                      kelas: selectedClass,
+                      mapel: targetMapel,
+                      semester: selectedSemester
+                    });
+                    try {
+                      localStorage.setItem('BAG_active_nilai_filter', payload);
+                      sessionStorage.setItem('BAG_session_nilai_filter', payload);
+                    } catch {
+                      // ignore
+                    }
+                    setActiveMenu('guru-nilai');
+                  }}
                   className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition cursor-pointer shadow-sm shadow-emerald-200"
                 >
                   <BookOpenCheck className="h-4 w-4" />
@@ -961,26 +912,32 @@ export const RekapLaporan: React.FC = () => {
                           </td>
 
                           {/* Kolom Nilai Formatif (Hanya jika ada) */}
-                          {assessmentCols.formatif.map((col: any) => (
-                            <td
-                              key={col.id}
-                              className="px-2.5 py-2.5 text-center border-r border-slate-100 font-semibold bg-emerald-50/20"
-                            >
-                              {item.formatifScores[col.id] !== undefined ? item.formatifScores[col.id] : '-'}
-                            </td>
-                          ))}
+                          {assessmentCols.formatif.map((col: any) => {
+                            const score = item.formatifScores[col.id];
+                            return (
+                              <td
+                                key={col.id}
+                                className="px-2.5 py-2.5 text-center border-r border-slate-100 font-semibold bg-emerald-50/20"
+                              >
+                                {typeof score === 'number' && score > 0 ? score : '-'}
+                              </td>
+                            );
+                          })}
 
                           {/* Kolom Nilai Sumatif (Hanya jika ada) */}
-                          {assessmentCols.sumatif.map((col: any, sIdx: number) => (
-                            <td
-                              key={col.id}
-                              className={`px-2.5 py-2.5 text-center font-semibold bg-blue-50/20 ${
-                                sIdx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-100' : ''
-                              }`}
-                            >
-                              {item.sumatifScores[col.id] !== undefined ? item.sumatifScores[col.id] : '-'}
-                            </td>
-                          ))}
+                          {assessmentCols.sumatif.map((col: any, sIdx: number) => {
+                            const score = item.sumatifScores[col.id];
+                            return (
+                              <td
+                                key={col.id}
+                                className={`px-2.5 py-2.5 text-center font-semibold bg-blue-50/20 ${
+                                  sIdx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-100' : ''
+                                }`}
+                              >
+                                {typeof score === 'number' && score > 0 ? score : '-'}
+                              </td>
+                            );
+                          })}
 
                           {assessmentCols.formatif.length + assessmentCols.sumatif.length === 0 && (
                             <td className="px-3 py-2.5 text-center text-slate-400 font-semibold border-r border-slate-100">

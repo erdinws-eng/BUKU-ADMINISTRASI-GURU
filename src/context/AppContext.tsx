@@ -212,19 +212,54 @@ function saveToStorage<T>(key: string, data: T) {
 }
 
 export function sanitizeNilaiItem(item: NilaiSiswaItem): NilaiSiswaItem {
-  if (item.customScores && Object.keys(item.customScores).length > 0) {
-    const keys = Object.keys(item.customScores);
-    const hasFormatifKey = keys.some((k) => k.toLowerCase().startsWith('formatif'));
-    if (!hasFormatifKey) {
-      return {
-        ...item,
-        formatif1: 0,
-        formatif2: 0,
-        formatif3: 0
-      };
-    }
+  // If assessmentCols is present on the record, filter customScores to only keep active columns
+  let cleanedCustomScores = item.customScores ? { ...item.customScores } : undefined;
+  if (
+    cleanedCustomScores &&
+    Array.isArray(item.assessmentCols) &&
+    item.assessmentCols.length > 0
+  ) {
+    const validColIds = new Set(item.assessmentCols.map((c) => c.id));
+    const filtered: Record<string, number> = {};
+    Object.entries(cleanedCustomScores).forEach(([k, v]) => {
+      if (validColIds.has(k)) {
+        filtered[k] = typeof v === 'number' ? v : Number(v) || 0;
+      }
+    });
+    cleanedCustomScores = filtered;
   }
+
+  if (cleanedCustomScores && Object.keys(cleanedCustomScores).length > 0) {
+    const keys = Object.keys(cleanedCustomScores);
+    const formatifKeys = keys.filter((k) => k.toLowerCase().startsWith('formatif'));
+    const sumatifKeys = keys.filter(
+      (k) => k.toLowerCase().startsWith('sumatif') || k.toLowerCase().startsWith('sts') || k.toLowerCase().startsWith('sas')
+    );
+
+    return {
+      ...item,
+      customScores: cleanedCustomScores,
+      formatif1: formatifKeys.length > 0 ? (cleanedCustomScores[formatifKeys[0]] ?? 0) : 0,
+      formatif2: formatifKeys.length > 1 ? (cleanedCustomScores[formatifKeys[1]] ?? 0) : 0,
+      formatif3: formatifKeys.length > 2 ? (cleanedCustomScores[formatifKeys[2]] ?? 0) : 0,
+      sts: sumatifKeys.length > 0 ? (cleanedCustomScores[sumatifKeys[0]] ?? 0) : 0,
+      sas: sumatifKeys.length > 1 ? (cleanedCustomScores[sumatifKeys[1]] ?? 0) : 0
+    };
+  }
+
   return item;
+}
+
+export function deduplicateAndSanitizeNilais(items: NilaiSiswaItem[]): NilaiSiswaItem[] {
+  if (!Array.isArray(items)) return [];
+  const map = new Map<string, NilaiSiswaItem>();
+  items.forEach((raw) => {
+    if (!raw || !raw.siswaId) return;
+    const item = sanitizeNilaiItem(raw);
+    const key = `${item.siswaId}_${(item.kelas || '').trim()}_${(item.mapel || '').trim()}_${(item.semester || 'Ganjil').trim()}`;
+    map.set(key, item);
+  });
+  return Array.from(map.values());
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -250,22 +285,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [absensis, setAbsensis] = useState<SesiAbsensi[]>(() => loadFromStorage('absensis', initialAbsensis));
   const [nilais, setNilais] = useState<NilaiSiswaItem[]>(() => {
     const raw = loadFromStorage<NilaiSiswaItem[]>('nilais', initialNilais);
-    return Array.isArray(raw) ? raw.map(sanitizeNilaiItem) : initialNilais;
+    return Array.isArray(raw) ? deduplicateAndSanitizeNilais(raw) : initialNilais;
   });
 
-  // Ensure any legacy polluted formatif fields in storage are cleaned immediately
+  // Ensure any legacy polluted formatif/sumatif fields in storage are cleaned immediately
   useEffect(() => {
     const raw = loadFromStorage<NilaiSiswaItem[]>('nilais', []);
     if (Array.isArray(raw) && raw.length > 0) {
-      let isChanged = false;
-      const cleaned = raw.map((item) => {
-        const sanitized = sanitizeNilaiItem(item);
-        if (sanitized.formatif1 !== item.formatif1 || sanitized.formatif2 !== item.formatif2 || sanitized.formatif3 !== item.formatif3) {
-          isChanged = true;
-        }
-        return sanitized;
-      });
-      if (isChanged) {
+      const cleaned = deduplicateAndSanitizeNilais(raw);
+      if (JSON.stringify(cleaned) !== JSON.stringify(raw)) {
         saveToStorage('nilais', cleaned);
         setNilais(cleaned);
       }
@@ -459,7 +487,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           saveToStorage('absensis', d.absensis);
         }
         if (Array.isArray(d.nilais) && d.nilais.length > 0) {
-          const cleanNilais = d.nilais.map(sanitizeNilaiItem);
+          const cleanNilais = deduplicateAndSanitizeNilais(d.nilais);
           setNilais(cleanNilais);
           saveToStorage('nilais', cleanNilais);
         }
@@ -517,7 +545,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const timeout = setTimeout(() => {
       syncWithSupabase(false);
-    }, 2500);
+    }, 800);
 
     return () => clearTimeout(timeout);
   }, [siswas, gurus, mapels, users, schoolSettings, jadwals, jurnals, absensis, nilais, protas, promesList, modulAjars, lkpds]);
@@ -863,15 +891,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const copy = [...prev];
       items.forEach((rawItem) => {
         const item = sanitizeNilaiItem(rawItem);
-        const idx = copy.findIndex((n) => n.siswaId === item.siswaId && n.mapel === item.mapel && n.semester === item.semester);
+        const idx = copy.findIndex(
+          (n) =>
+            n.siswaId === item.siswaId &&
+            (n.kelas || '').trim() === (item.kelas || '').trim() &&
+            (n.mapel || '').trim() === (item.mapel || '').trim() &&
+            (n.semester || 'Ganjil').trim() === (item.semester || 'Ganjil').trim()
+        );
         if (idx >= 0) {
           copy[idx] = item;
         } else {
           copy.push(item);
         }
       });
-      saveToStorage('nilais', copy);
-      return copy;
+      const deduped = deduplicateAndSanitizeNilais(copy);
+      saveToStorage('nilais', deduped);
+      return deduped;
     });
   };
 

@@ -217,9 +217,28 @@ export const AbsensiSiswa: React.FC = () => {
   };
 
   // Recent attendance history for this teacher
-  const teacherHistory = absensis
-    .filter((a) => a.guruId === currentTeacher?.id)
-    .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+  const [historyFilterKelas, setHistoryFilterKelas] = useState<string>('Semua');
+
+  const teacherHistory = useMemo(
+    () =>
+      absensis
+        .filter((a) => a.guruId === currentTeacher?.id)
+        .sort((a, b) => b.tanggal.localeCompare(a.tanggal)),
+    [absensis, currentTeacher?.id]
+  );
+
+  const historyClassOptions = useMemo(() => {
+    const set = new Set<string>(availableClasses);
+    teacherHistory.forEach((h) => {
+      if (h.kelas) set.add(h.kelas);
+    });
+    return Array.from(set).sort();
+  }, [availableClasses, teacherHistory]);
+
+  const filteredHistory = useMemo(() => {
+    if (historyFilterKelas === 'Semua') return teacherHistory;
+    return teacherHistory.filter((h) => h.kelas === historyFilterKelas);
+  }, [teacherHistory, historyFilterKelas]);
 
   return (
     <div className="space-y-6">
@@ -557,72 +576,102 @@ export const AbsensiSiswa: React.FC = () => {
 
       {/* History Presensi */}
       <div className="no-print rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-slate-500" />
             <h3 className="text-xs font-bold text-slate-800">
-              Riwayat Presensi Tersimpan ({teacherHistory.length} Sesi)
+              Riwayat Presensi Tersimpan ({filteredHistory.length} Sesi)
             </h3>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label htmlFor="select-filter-riwayat-kelas" className="text-xs font-semibold text-slate-500 shrink-0">
+              Filter Kelas:
+            </label>
+            <select
+              id="select-filter-riwayat-kelas"
+              value={historyFilterKelas}
+              onChange={(e) => setHistoryFilterKelas(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer"
+            >
+              <option value="Semua">Semua Kelas ({teacherHistory.length})</option>
+              {historyClassOptions.map((k) => {
+                const countKelas = teacherHistory.filter((h) => h.kelas === k).length;
+                return (
+                  <option key={k} value={k}>
+                    Kelas {k} ({countKelas})
+                  </option>
+                );
+              })}
+            </select>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {teacherHistory.map((sesi) => {
-            const hCount = sesi.records.filter((r) => r.status === 'Hadir').length;
-            const sCount = sesi.records.filter((r) => r.status === 'Sakit').length;
-            const iCount = sesi.records.filter((r) => r.status === 'Izin').length;
-            const aCount = sesi.records.filter((r) => r.status === 'Alpa').length;
+        {filteredHistory.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-6 text-center text-xs text-slate-400">
+            {historyFilterKelas === 'Semua'
+              ? 'Belum ada riwayat presensi tersimpan.'
+              : `Belum ada riwayat presensi tersimpan untuk Kelas ${historyFilterKelas}.`}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredHistory.map((sesi) => {
+              const hCount = sesi.records.filter((r) => r.status === 'Hadir').length;
+              const sCount = sesi.records.filter((r) => r.status === 'Sakit').length;
+              const iCount = sesi.records.filter((r) => r.status === 'Izin').length;
+              const aCount = sesi.records.filter((r) => r.status === 'Alpa').length;
 
-            return (
-              <div
-                key={sesi.id}
-                className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 p-3 hover:border-emerald-300 transition"
-              >
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-xs text-slate-800">{sesi.tanggal}</span>
-                    <span className="rounded bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-800">
-                      Kelas {sesi.kelas}
-                    </span>
+              return (
+                <div
+                  key={sesi.id}
+                  className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 p-3 hover:border-emerald-300 transition"
+                >
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-xs text-slate-800">{sesi.tanggal}</span>
+                      <span className="rounded bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-800">
+                        Kelas {sesi.kelas}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      H: {hCount} | S: {sCount} | I: {iCount} | A: {aCount}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    H: {hCount} | S: {sCount} | I: {iCount} | A: {aCount}
-                  </p>
-                </div>
 
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setSelectedClass(sesi.kelas);
-                      setTanggal(sesi.tanggal);
-                    }}
-                    className="rounded-lg bg-white border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Buka
-                  </button>
-                  <button
-                    onClick={() => {
-                      showFeedbackModal({
-                        type: 'warning',
-                        title: 'Hapus Sesi Presensi?',
-                        message: `Sesi presensi kelas ${sesi.kelas} tanggal ${sesi.tanggal} akan dihapus secara permanen.`,
-                        confirmText: 'Ya, Hapus Presensi',
-                        cancelText: 'Batal',
-                        onConfirm: () => {
-                          deleteAbsensi(sesi.id);
-                          showToast('info', 'Sesi Presensi Dihapus', `Data presensi kelas ${sesi.kelas} (${sesi.tanggal}) telah dihapus.`);
-                        }
-                      });
-                    }}
-                    className="rounded-lg p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setSelectedClass(sesi.kelas);
+                        setTanggal(sesi.tanggal);
+                      }}
+                      className="rounded-lg bg-white border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Buka
+                    </button>
+                    <button
+                      onClick={() => {
+                        showFeedbackModal({
+                          type: 'warning',
+                          title: 'Hapus Sesi Presensi?',
+                          message: `Sesi presensi kelas ${sesi.kelas} tanggal ${sesi.tanggal} akan dihapus secara permanen.`,
+                          confirmText: 'Ya, Hapus Presensi',
+                          cancelText: 'Batal',
+                          onConfirm: () => {
+                            deleteAbsensi(sesi.id);
+                            showToast('info', 'Sesi Presensi Dihapus', `Data presensi kelas ${sesi.kelas} (${sesi.tanggal}) telah dihapus.`);
+                          }
+                        });
+                      }}
+                      className="rounded-lg p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

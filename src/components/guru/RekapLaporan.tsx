@@ -430,11 +430,13 @@ export const RekapLaporan: React.FC = () => {
       } else {
         row1.push('PENILAIAN');
       }
+      row1.push('Rata-Rata Formatif');
+      row1.push('Rata-Rata Sumatif');
       row1.push('Nilai Akhir');
       row1.push('Status KKM');
       rows.push(row1);
 
-      // BARIS 2: Blank for No/NISN/Nama, FORMATIF (spanning if exists), SUMATIF (spanning if exists), blank for NA/Status
+      // BARIS 2: Blank for No/NISN/Nama, FORMATIF (spanning if exists), SUMATIF (spanning if exists), blank for Averages/NA/Status
       const row2: any[] = ['', '', ''];
       const fLen = assessmentCols.formatif.length;
       const sLen = assessmentCols.sumatif.length;
@@ -455,15 +457,19 @@ export const RekapLaporan: React.FC = () => {
       }
       row2.push('');
       row2.push('');
+      row2.push('');
+      row2.push('');
       rows.push(row2);
 
-      // BARIS 3: Blank for No/NISN/Nama, Formatif items, Sumatif items, blank for NA/Status
+      // BARIS 3: Blank for No/NISN/Nama, Formatif items, Sumatif items, blank for Averages/NA/Status
       const row3: any[] = ['', '', ''];
       assessmentCols.formatif.forEach((c: any) => row3.push(c.nama));
       assessmentCols.sumatif.forEach((c: any) => row3.push(c.nama));
       if (fLen === 0 && sLen === 0) {
         row3.push('-');
       }
+      row3.push('');
+      row3.push('');
       row3.push('');
       row3.push('');
       rows.push(row3);
@@ -479,22 +485,30 @@ export const RekapLaporan: React.FC = () => {
         // Formatif scores
         assessmentCols.formatif.forEach((c: any) => {
           const score = item.formatifScores[c.id];
-          studentRow.push(typeof score === 'number' && score > 0 ? score : (item.hasScore ? 0 : '-'));
+          studentRow.push(typeof score === 'number' && !isNaN(score) ? score : '-');
         });
 
         // Sumatif scores
         assessmentCols.sumatif.forEach((c: any) => {
           const score = item.sumatifScores[c.id];
-          studentRow.push(typeof score === 'number' && score > 0 ? score : (item.hasScore ? 0 : '-'));
+          studentRow.push(typeof score === 'number' && !isNaN(score) ? score : '-');
         });
 
         if (fLen === 0 && sLen === 0) {
           studentRow.push('-');
         }
 
-        // Nilai Akhir & Status
-        studentRow.push(item.hasScore ? item.finalScore : '-');
-        studentRow.push(item.hasScore ? (item.isPassed ? 'Tuntas' : 'Belum Tuntas (Bimbingan)') : 'Belum Dinilai');
+        // Rata-Rata Formatif, Rata-Rata Sumatif, Nilai Akhir & Status
+        studentRow.push(item.avgF !== undefined ? item.avgF : '-');
+        studentRow.push(item.avgS !== undefined ? item.avgS : '-');
+        studentRow.push(item.finalScore !== undefined ? item.finalScore : '-');
+        studentRow.push(
+          item.finalScore !== undefined
+            ? item.isPassed
+              ? 'Tuntas'
+              : 'Belum Tuntas (Remedial)'
+            : 'Belum Dinilai'
+        );
 
         rows.push(studentRow);
       });
@@ -512,7 +526,9 @@ export const RekapLaporan: React.FC = () => {
       // Setup merges for headers
       const startEvalCol = 3;
       const evalWidth = Math.max(1, fLen + sLen);
-      const naCol = startEvalCol + evalWidth;
+      const avgFCol = startEvalCol + evalWidth;
+      const avgSCol = avgFCol + 1;
+      const naCol = avgSCol + 1;
       const statusCol = naCol + 1;
 
       const merges: any[] = [
@@ -527,12 +543,14 @@ export const RekapLaporan: React.FC = () => {
         { s: { r: 6, c: 0 }, e: { r: 8, c: 0 } }, // No
         { s: { r: 6, c: 1 }, e: { r: 8, c: 1 } }, // NISN
         { s: { r: 6, c: 2 }, e: { r: 8, c: 2 } }, // Nama Siswa
+        { s: { r: 6, c: avgFCol }, e: { r: 8, c: avgFCol } }, // Rata-Rata Formatif
+        { s: { r: 6, c: avgSCol }, e: { r: 8, c: avgSCol } }, // Rata-Rata Sumatif
         { s: { r: 6, c: naCol }, e: { r: 8, c: naCol } }, // Nilai Akhir
         { s: { r: 6, c: statusCol }, e: { r: 8, c: statusCol } }, // Status KKM
       ];
 
       if (fLen + sLen > 0) {
-        merges.push({ s: { r: 6, c: startEvalCol }, e: { r: 6, c: naCol - 1 } }); // PENILAIAN
+        merges.push({ s: { r: 6, c: startEvalCol }, e: { r: 6, c: avgFCol - 1 } }); // PENILAIAN
       } else {
         merges.push({ s: { r: 6, c: startEvalCol }, e: { r: 8, c: startEvalCol } });
       }
@@ -554,6 +572,9 @@ export const RekapLaporan: React.FC = () => {
       ];
       assessmentCols.formatif.forEach((c: any) => colWidths.push({ wch: Math.max(16, c.nama.length + 3) }));
       assessmentCols.sumatif.forEach((c: any) => colWidths.push({ wch: Math.max(16, c.nama.length + 3) }));
+      if (fLen + sLen === 0) colWidths.push({ wch: 16 });
+      colWidths.push({ wch: 18 });
+      colWidths.push({ wch: 18 });
       colWidths.push({ wch: 14 });
       colWidths.push({ wch: 24 });
 
@@ -872,7 +893,13 @@ export const RekapLaporan: React.FC = () => {
                             Penilaian (Belum Diinput)
                           </th>
                         )}
-                        <th rowSpan={3} className="px-3 py-3 text-center font-bold bg-emerald-100/60 text-emerald-900 border-l border-r border-slate-200 w-28 uppercase">
+                        <th rowSpan={3} className="px-2.5 py-3 text-center font-bold bg-emerald-100/70 text-emerald-950 border-l border-r border-slate-200 w-24 uppercase">
+                          Rata-Rata Formatif
+                        </th>
+                        <th rowSpan={3} className="px-2.5 py-3 text-center font-bold bg-blue-100/70 text-blue-950 border-r border-slate-200 w-24 uppercase">
+                          Rata-Rata Sumatif
+                        </th>
+                        <th rowSpan={3} className="px-3 py-3 text-center font-extrabold bg-amber-100/70 text-amber-950 border-r border-slate-200 w-24 uppercase">
                           Nilai Akhir
                         </th>
                         <th rowSpan={3} className="px-3 py-3 text-center w-24 uppercase">
@@ -977,7 +1004,7 @@ export const RekapLaporan: React.FC = () => {
                                 key={col.id}
                                 className="px-2.5 py-2.5 text-center border-r border-slate-100 font-semibold bg-emerald-50/20"
                               >
-                                {typeof score === 'number' && score > 0 ? score : '-'}
+                                {typeof score === 'number' && !isNaN(score) ? score : '-'}
                               </td>
                             );
                           })}
@@ -992,7 +1019,7 @@ export const RekapLaporan: React.FC = () => {
                                   sIdx < assessmentCols.sumatif.length - 1 ? 'border-r border-slate-100' : ''
                                 }`}
                               >
-                                {typeof score === 'number' && score > 0 ? score : '-'}
+                                {typeof score === 'number' && !isNaN(score) ? score : '-'}
                               </td>
                             );
                           })}
@@ -1003,14 +1030,30 @@ export const RekapLaporan: React.FC = () => {
                             </td>
                           )}
 
+                          {/* Rata-Rata Formatif */}
+                          <td className="px-2.5 py-2.5 text-center font-bold text-xs bg-emerald-50/40 text-emerald-800 border-r border-slate-100">
+                            {item.avgF !== undefined ? item.avgF : <span className="text-slate-400 font-semibold">-</span>}
+                          </td>
+
+                          {/* Rata-Rata Sumatif */}
+                          <td className="px-2.5 py-2.5 text-center font-bold text-xs bg-blue-50/40 text-blue-800 border-r border-slate-100">
+                            {item.avgS !== undefined ? item.avgS : <span className="text-slate-400 font-semibold">-</span>}
+                          </td>
+
                           {/* Nilai Akhir */}
-                          <td className="px-3 py-2.5 text-center font-bold text-sm bg-emerald-50/40 text-emerald-800 border-l border-r border-slate-100">
-                            {item.hasScore ? item.finalScore : <span className="text-slate-400 font-semibold">-</span>}
+                          <td className="px-3 py-2.5 text-center font-bold text-sm bg-amber-50/40 text-amber-900 border-r border-slate-100">
+                            {item.finalScore !== undefined ? (
+                              <span className={item.isPassed ? 'text-emerald-700' : 'text-rose-600'}>
+                                {item.finalScore}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 font-semibold">-</span>
+                            )}
                           </td>
 
                           {/* Status */}
                           <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                            {item.hasScore ? (
+                            {item.finalScore !== undefined ? (
                               <span
                                 className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                                   item.isPassed

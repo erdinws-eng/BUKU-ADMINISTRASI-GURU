@@ -9,13 +9,16 @@ export interface AssessmentCol {
 export interface StudentGradeRow {
   siswa: Siswa;
   hasScore: boolean;
+  hasFormatif: boolean;
+  hasSumatif: boolean;
   scoresByCol: Record<string, number | undefined>;
   formatifScores: Record<string, number | undefined>;
   sumatifScores: Record<string, number | undefined>;
-  avgF: number;
+  avgF: number | undefined;
+  avgS: number | undefined;
   stsVal: number;
   sasVal: number;
-  finalScore: number;
+  finalScore: number | undefined;
   isPassed: boolean;
 }
 
@@ -276,16 +279,16 @@ export function computeClassGradeRecap(params: {
     formatifCols.forEach((col) => {
       let val: number | undefined = undefined;
       if (overrideRow && overrideRow[col.id] !== undefined) {
-        val = Number(overrideRow[col.id]) || 0;
+        val = typeof overrideRow[col.id] === 'number' ? overrideRow[col.id] : undefined;
       } else if (n) {
         if (n.customScores && Object.keys(n.customScores).length > 0) {
-          if (n.customScores[col.id] !== undefined) {
-            val = Number(n.customScores[col.id]) || 0;
+          if (n.customScores[col.id] !== undefined && n.customScores[col.id] !== null) {
+            val = Number(n.customScores[col.id]);
           }
         } else {
-          if (col.id === 'formatif1' && typeof n.formatif1 === 'number' && n.formatif1 > 0) val = n.formatif1;
-          else if (col.id === 'formatif2' && typeof n.formatif2 === 'number' && n.formatif2 > 0) val = n.formatif2;
-          else if (col.id === 'formatif3' && typeof n.formatif3 === 'number' && n.formatif3 > 0) val = n.formatif3;
+          if (col.id === 'formatif1' && typeof n.formatif1 === 'number') val = n.formatif1;
+          else if (col.id === 'formatif2' && typeof n.formatif2 === 'number') val = n.formatif2;
+          else if (col.id === 'formatif3' && typeof n.formatif3 === 'number') val = n.formatif3;
         }
       }
       formatifScores[col.id] = val;
@@ -295,68 +298,85 @@ export function computeClassGradeRecap(params: {
     sumatifCols.forEach((col, sIdx) => {
       let val: number | undefined = undefined;
       if (overrideRow && overrideRow[col.id] !== undefined) {
-        val = Number(overrideRow[col.id]) || 0;
+        val = typeof overrideRow[col.id] === 'number' ? overrideRow[col.id] : undefined;
       } else if (n) {
         if (n.customScores && Object.keys(n.customScores).length > 0) {
-          if (n.customScores[col.id] !== undefined) {
-            val = Number(n.customScores[col.id]) || 0;
+          if (n.customScores[col.id] !== undefined && n.customScores[col.id] !== null) {
+            val = Number(n.customScores[col.id]);
           }
         } else {
-          if ((col.id === 'sts' || sIdx === 0) && typeof n.sts === 'number' && n.sts > 0) val = n.sts;
-          else if ((col.id === 'sas' || sIdx === 1) && typeof n.sas === 'number' && n.sas > 0) val = n.sas;
+          if ((col.id === 'sts' || sIdx === 0) && typeof n.sts === 'number') val = n.sts;
+          else if ((col.id === 'sas' || sIdx === 1) && typeof n.sas === 'number') val = n.sas;
         }
       }
       sumatifScores[col.id] = val;
       scoresByCol[col.id] = val;
     });
 
-    const fVals = Object.values(formatifScores).filter((v): v is number => typeof v === 'number' && !isNaN(v) && v > 0);
-    const sVals = Object.values(sumatifScores).filter((v): v is number => typeof v === 'number' && !isNaN(v) && v > 0);
-    const allValidVals = [...fVals, ...sVals];
-    const hasScore = allValidVals.length > 0;
+    const fVals = Object.values(formatifScores).filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
+    const sVals = Object.values(sumatifScores).filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
+    const hasFormatif = fVals.length > 0;
+    const hasSumatif = sVals.length > 0;
+    const hasScore = hasFormatif || hasSumatif;
 
     if (!hasScore) {
       return {
         siswa,
         hasScore: false,
+        hasFormatif: false,
+        hasSumatif: false,
         scoresByCol,
         formatifScores,
         sumatifScores,
-        avgF: 0,
+        avgF: undefined,
+        avgS: undefined,
         stsVal: 0,
         sasVal: 0,
-        finalScore: 0,
+        finalScore: undefined,
         isPassed: false
       };
     }
 
-    const avgF = fVals.length > 0 ? Math.round(fVals.reduce((a, b) => a + b, 0) / fVals.length) : 0;
+    const avgF = hasFormatif ? Math.round(fVals.reduce((a, b) => a + b, 0) / fVals.length) : undefined;
+    const avgS = hasSumatif ? Math.round(sVals.reduce((a, b) => a + b, 0) / sVals.length) : undefined;
     const stsVal = sVals[0] ?? 0;
     const sasVal = sVals[1] ?? 0;
-    const finalScore = Math.round(allValidVals.reduce((a, b) => a + b, 0) / allValidVals.length);
+
+    // Nilai akhir: (rata-rata formatif + rata-rata sumatif) / 2
+    let finalScore: number | undefined = undefined;
+    if (avgF !== undefined && avgS !== undefined) {
+      finalScore = Math.round((avgF + avgS) / 2);
+    } else if (avgF !== undefined) {
+      finalScore = avgF;
+    } else if (avgS !== undefined) {
+      finalScore = avgS;
+    }
 
     return {
       siswa,
       hasScore: true,
+      hasFormatif,
+      hasSumatif,
       scoresByCol,
       formatifScores,
       sumatifScores,
       avgF,
+      avgS,
       stsVal,
       sasVal,
       finalScore,
-      isPassed: finalScore >= kkm
+      isPassed: finalScore !== undefined ? finalScore >= kkm : false
     };
   });
 
   // Always maintain A-Z student name order
   rows.sort((a, b) => a.siswa.nama.localeCompare(b.siswa.nama, 'id'));
 
-  const gradedList = rows.filter((r) => r.hasScore);
+  const gradedList = rows.filter((r) => r.hasScore && r.finalScore !== undefined);
   const studentsCount = classStudents.length;
   const gradedCount = gradedList.length;
   const classAvg =
-    gradedCount > 0 ? Math.round(gradedList.reduce((sum, r) => sum + r.finalScore, 0) / gradedCount) : 0;
+    gradedCount > 0 ? Math.round(gradedList.reduce((sum, r) => sum + (r.finalScore ?? 0), 0) / gradedCount) : 0;
   const passedCount = gradedList.filter((r) => r.isPassed).length;
   const remedialCount = gradedCount - passedCount;
   const passRate = gradedCount > 0 ? Math.round((passedCount / gradedCount) * 100) : 0;

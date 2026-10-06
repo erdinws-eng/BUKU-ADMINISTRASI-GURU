@@ -263,14 +263,16 @@ export const NilaiSiswa: React.FC = () => {
       if (existing) {
         if (existing.customScores && Object.keys(existing.customScores).length > 0) {
           Object.entries(existing.customScores).forEach(([k, v]) => {
-            studentScoreObj[k] = typeof v === 'number' ? v : Number(v) || 0;
+            if (v !== undefined && v !== null && !isNaN(Number(v))) {
+              studentScoreObj[k] = Number(v);
+            }
           });
         } else {
-          if (existing.formatif1 !== undefined && existing.formatif1 > 0) studentScoreObj['formatif1'] = existing.formatif1;
-          if (existing.formatif2 !== undefined && existing.formatif2 > 0) studentScoreObj['formatif2'] = existing.formatif2;
-          if (existing.formatif3 !== undefined && existing.formatif3 > 0) studentScoreObj['formatif3'] = existing.formatif3;
-          if (existing.sts !== undefined && existing.sts > 0) studentScoreObj['sts'] = existing.sts;
-          if (existing.sas !== undefined && existing.sas > 0) studentScoreObj['sas'] = existing.sas;
+          if (typeof existing.formatif1 === 'number' && existing.formatif1 >= 0) studentScoreObj['formatif1'] = existing.formatif1;
+          if (typeof existing.formatif2 === 'number' && existing.formatif2 >= 0) studentScoreObj['formatif2'] = existing.formatif2;
+          if (typeof existing.formatif3 === 'number' && existing.formatif3 >= 0) studentScoreObj['formatif3'] = existing.formatif3;
+          if (typeof existing.sts === 'number' && existing.sts >= 0) studentScoreObj['sts'] = existing.sts;
+          if (typeof existing.sas === 'number' && existing.sas >= 0) studentScoreObj['sas'] = existing.sas;
         }
       }
 
@@ -307,15 +309,15 @@ export const NilaiSiswa: React.FC = () => {
           (!n.guruId || !currentTeacher?.id || n.guruId === currentTeacher.id)
       );
 
-      const f1 = fCols.length > 0 ? (scores[fCols[0].id] ?? 0) : 0;
-      const f2 = fCols.length > 1 ? (scores[fCols[1].id] ?? 0) : 0;
-      const f3 = fCols.length > 2 ? (scores[fCols[2].id] ?? 0) : 0;
-      const stsVal = sCols.length > 0 ? (scores[sCols[0].id] ?? 0) : 0;
-      const sasVal = sCols.length > 1 ? (scores[sCols[1].id] ?? 0) : 0;
+      const f1 = fCols.length > 0 && typeof scores[fCols[0].id] === 'number' ? scores[fCols[0].id] : 0;
+      const f2 = fCols.length > 1 && typeof scores[fCols[1].id] === 'number' ? scores[fCols[1].id] : 0;
+      const f3 = fCols.length > 2 && typeof scores[fCols[2].id] === 'number' ? scores[fCols[2].id] : 0;
+      const stsVal = sCols.length > 0 && typeof scores[sCols[0].id] === 'number' ? scores[sCols[0].id] : 0;
+      const sasVal = sCols.length > 1 && typeof scores[sCols[1].id] === 'number' ? scores[sCols[1].id] : 0;
 
       const filteredCustomScores: Record<string, number> = {};
       targetCols.forEach((col) => {
-        if (scores[col.id] !== undefined) {
+        if (scores[col.id] !== undefined && typeof scores[col.id] === 'number' && !isNaN(scores[col.id])) {
           filteredCustomScores[col.id] = scores[col.id];
         }
       });
@@ -343,14 +345,16 @@ export const NilaiSiswa: React.FC = () => {
   };
 
   // Inline update grade for a student in a column (auto-synced to AppContext so Rekap & Leger Nilai is always identical)
-  const handleUpdateGrade = (siswaId: string, colId: string, val: number) => {
-    const clamped = Math.min(100, Math.max(0, Number(val) || 0));
+  const handleUpdateGrade = (siswaId: string, colId: string, val: number | undefined) => {
+    const studentScoreMap = { ...(studentScores[siswaId] || {}) };
+    if (val === undefined || isNaN(val)) {
+      delete studentScoreMap[colId];
+    } else {
+      studentScoreMap[colId] = Math.min(100, Math.max(0, val));
+    }
     const nextScores: Record<string, Record<string, number>> = {
       ...studentScores,
-      [siswaId]: {
-        ...(studentScores[siswaId] || {}),
-        [colId]: clamped
-      }
+      [siswaId]: studentScoreMap
     };
     setStudentScores(nextScores);
     if (selectedClass && selectedMapel && columns.length > 0) {
@@ -415,13 +419,15 @@ export const NilaiSiswa: React.FC = () => {
       rows.push([`KKM Ketuntasan: ${schoolSettings.kkmDefault} | Tanggal Unduh: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'long' })}`]);
       rows.push([]);
 
-      // Baris 1: No, NISN, Nama Lengkap Siswa, PENILAIAN (merged), Rata-Rata, Status KKM
+      // Baris 1: No, NISN, Nama Lengkap Siswa, PENILAIAN (merged), Rata-Rata Formatif, Rata-Rata Sumatif, Nilai Akhir, Status KKM
       const row1: any[] = ['No', 'NISN', 'Nama Lengkap Siswa'];
       row1.push('PENILAIAN');
-      for (let i = 1; i < orderedCols.length; i++) {
+      for (let i = 1; i < Math.max(1, orderedCols.length); i++) {
         row1.push('');
       }
-      row1.push('Rata-Rata');
+      row1.push('Rata-Rata Formatif');
+      row1.push('Rata-Rata Sumatif');
+      row1.push('Nilai Akhir');
       row1.push('Status KKM');
       rows.push(row1);
 
@@ -435,6 +441,11 @@ export const NilaiSiswa: React.FC = () => {
         row2.push('SUMATIF');
         for (let i = 1; i < sumatifCols.length; i++) row2.push('');
       }
+      if (orderedCols.length === 0) {
+        row2.push('-');
+      }
+      row2.push('');
+      row2.push('');
       row2.push('');
       row2.push('');
       rows.push(row2);
@@ -442,6 +453,11 @@ export const NilaiSiswa: React.FC = () => {
       // Baris 3: Blank for No/NISN/Nama, Sub-kolom formatif, Sub-kolom sumatif, blank for Rata-rata/Status
       const row3: any[] = ['', '', ''];
       orderedCols.forEach((col) => row3.push(col.nama));
+      if (orderedCols.length === 0) {
+        row3.push('-');
+      }
+      row3.push('');
+      row3.push('');
       row3.push('');
       row3.push('');
       rows.push(row3);
@@ -456,12 +472,24 @@ export const NilaiSiswa: React.FC = () => {
 
         orderedCols.forEach((col) => {
           const val = studentScores[s.id]?.[col.id];
-          studentRow.push(typeof val === 'number' && val > 0 ? val : (val === 0 ? 0 : '-'));
+          studentRow.push(typeof val === 'number' && !isNaN(val) ? val : '-');
         });
 
-        const avg = getStudentAverage(s.id);
-        studentRow.push(avg > 0 ? avg : '-');
-        studentRow.push(avg > 0 ? (avg >= schoolSettings.kkmDefault ? 'Tuntas' : 'Bimbingan') : '-');
+        if (orderedCols.length === 0) {
+          studentRow.push('-');
+        }
+
+        const rRow = studentRecapMap.get(s.id);
+        studentRow.push(rRow?.avgF !== undefined ? rRow.avgF : '-');
+        studentRow.push(rRow?.avgS !== undefined ? rRow.avgS : '-');
+        studentRow.push(rRow?.finalScore !== undefined ? rRow.finalScore : '-');
+        studentRow.push(
+          rRow?.finalScore !== undefined
+            ? rRow.isPassed
+              ? 'Tuntas'
+              : 'Remedial'
+            : '-'
+        );
 
         rows.push(studentRow);
       });
@@ -479,8 +507,11 @@ export const NilaiSiswa: React.FC = () => {
       const fLen = formatifCols.length;
       const sLen = sumatifCols.length;
       const startCol = 3;
-      const avgCol = startCol + orderedCols.length;
-      const statusCol = avgCol + 1;
+      const evalColSpan = Math.max(1, orderedCols.length);
+      const avgFCol = startCol + evalColSpan;
+      const avgSCol = avgFCol + 1;
+      const finalCol = avgSCol + 1;
+      const statusCol = finalCol + 1;
 
       const merges: any[] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: statusCol } },
@@ -492,8 +523,10 @@ export const NilaiSiswa: React.FC = () => {
         { s: { r: 6, c: 0 }, e: { r: 8, c: 0 } },
         { s: { r: 6, c: 1 }, e: { r: 8, c: 1 } },
         { s: { r: 6, c: 2 }, e: { r: 8, c: 2 } },
-        { s: { r: 6, c: startCol }, e: { r: 6, c: avgCol - 1 } },
-        { s: { r: 6, c: avgCol }, e: { r: 8, c: avgCol } },
+        { s: { r: 6, c: startCol }, e: { r: 6, c: avgFCol - 1 } },
+        { s: { r: 6, c: avgFCol }, e: { r: 8, c: avgFCol } },
+        { s: { r: 6, c: avgSCol }, e: { r: 8, c: avgSCol } },
+        { s: { r: 6, c: finalCol }, e: { r: 8, c: finalCol } },
         { s: { r: 6, c: statusCol }, e: { r: 8, c: statusCol } },
       ];
 
@@ -501,7 +534,7 @@ export const NilaiSiswa: React.FC = () => {
         merges.push({ s: { r: 7, c: startCol }, e: { r: 7, c: startCol + fLen - 1 } });
       }
       if (sLen > 0) {
-        merges.push({ s: { r: 7, c: startCol + fLen }, e: { r: 7, c: avgCol - 1 } });
+        merges.push({ s: { r: 7, c: startCol + fLen }, e: { r: 7, c: avgFCol - 1 } });
       }
 
       ws['!merges'] = merges;
@@ -512,8 +545,11 @@ export const NilaiSiswa: React.FC = () => {
         { wch: 32 }
       ];
       orderedCols.forEach((c) => colWidths.push({ wch: Math.max(16, c.nama.length + 3) }));
+      if (orderedCols.length === 0) colWidths.push({ wch: 16 });
+      colWidths.push({ wch: 18 });
+      colWidths.push({ wch: 18 });
       colWidths.push({ wch: 14 });
-      colWidths.push({ wch: 20 });
+      colWidths.push({ wch: 18 });
 
       ws['!cols'] = colWidths;
 
@@ -935,6 +971,10 @@ export const NilaiSiswa: React.FC = () => {
   const passedStudents = recapData.passedCount;
   const passRate = recapData.passRate;
 
+  const studentRecapMap = useMemo(() => {
+    return new Map(recapData.rows.map((r) => [r.siswa.id, r]));
+  }, [recapData.rows]);
+
   // Saved class/mapel pairs for quick 1-click access
   const savedGradeGroups = useMemo(() => {
     const groups = new Map<string, { kelas: string; mapel: string; semester: 'Ganjil' | 'Genap'; count: number }>();
@@ -944,12 +984,12 @@ export const NilaiSiswa: React.FC = () => {
       const sem = (n.semester || 'Ganjil') as 'Ganjil' | 'Genap';
       const key = `${n.kelas}_${n.mapel}_${sem}`;
       const hasAnyScore =
-        (n.customScores && Object.values(n.customScores).some((v) => Number(v) > 0)) ||
-        n.formatif1 > 0 ||
-        n.formatif2 > 0 ||
-        n.formatif3 > 0 ||
-        n.sts > 0 ||
-        n.sas > 0;
+        (n.customScores && Object.values(n.customScores).some((v) => typeof v === 'number' && !isNaN(v) && v >= 0)) ||
+        (typeof n.formatif1 === 'number' && n.formatif1 >= 0) ||
+        (typeof n.formatif2 === 'number' && n.formatif2 >= 0) ||
+        (typeof n.formatif3 === 'number' && n.formatif3 >= 0) ||
+        (typeof n.sts === 'number' && n.sts >= 0) ||
+        (typeof n.sas === 'number' && n.sas >= 0);
       if (hasAnyScore) {
         const cur = groups.get(key) || { kelas: n.kelas, mapel: n.mapel, semester: sem, count: 0 };
         cur.count += 1;
@@ -1330,23 +1370,29 @@ export const NilaiSiswa: React.FC = () => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="border-b border-slate-200 bg-slate-50 text-slate-700 font-bold uppercase tracking-wider">
-                  {/* BARIS 1: NO, NISN, NAMA LENGKAP SISWA, PENILAIAN, RATA-RATA, STATUS KKM */}
+                  {/* BARIS 1: NO, NISN, NAMA LENGKAP SISWA, PENILAIAN, RATA-RATA FORMATIF, RATA-RATA SUMATIF, NILAI AKHIR, STATUS KKM */}
                   <tr className="border-b border-slate-200">
                     <th rowSpan={3} className="px-3 py-3.5 text-center w-12 border-r border-slate-200">No</th>
                     <th rowSpan={3} className="px-3.5 py-3.5 text-left w-36 border-r border-slate-200">NISN</th>
                     <th rowSpan={3} className="px-4 py-3.5 text-left min-w-[200px] border-r border-slate-200">Nama Lengkap Siswa</th>
 
                     <th
-                      colSpan={orderedCols.length}
+                      colSpan={orderedCols.length > 0 ? orderedCols.length : 1}
                       className="px-3 py-2 text-center bg-emerald-50/90 text-emerald-950 border-b border-slate-200 font-extrabold uppercase tracking-wider text-xs"
                     >
                       Penilaian
                     </th>
 
-                    <th rowSpan={3} className="px-3 py-3.5 text-center w-28 bg-emerald-100/60 text-emerald-950 font-bold border-l border-r border-slate-200">
-                      Rata-Rata
+                    <th rowSpan={3} className="px-2.5 py-3.5 text-center w-24 bg-emerald-100/70 text-emerald-950 font-bold border-l border-r border-slate-200">
+                      Rata-Rata Formatif
                     </th>
-                    <th rowSpan={3} className="px-3 py-3.5 text-center w-28 bg-slate-100/60 text-slate-900 font-bold">
+                    <th rowSpan={3} className="px-2.5 py-3.5 text-center w-24 bg-blue-100/70 text-blue-950 font-bold border-r border-slate-200">
+                      Rata-Rata Sumatif
+                    </th>
+                    <th rowSpan={3} className="px-3 py-3.5 text-center w-24 bg-amber-100/70 text-amber-950 font-extrabold border-r border-slate-200">
+                      Nilai Akhir
+                    </th>
+                    <th rowSpan={3} className="px-3 py-3.5 text-center w-24 bg-slate-100/70 text-slate-900 font-bold">
                       Status KKM
                     </th>
                   </tr>
@@ -1413,15 +1459,18 @@ export const NilaiSiswa: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {classStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={orderedCols.length + 5} className="py-12 text-center text-xs text-slate-400">
+                      <td colSpan={orderedCols.length + 7} className="py-12 text-center text-xs text-slate-400">
                         Tidak ada peserta didik terdaftar di Kelas {selectedClass}.
                       </td>
                     </tr>
                   ) : (
                     classStudents.map((siswa, index) => {
                       const scores = studentScores[siswa.id] || {};
-                      const studentAvg = getStudentAverage(siswa.id);
-                      const isPassed = studentAvg >= schoolSettings.kkmDefault;
+                      const rRow = studentRecapMap.get(siswa.id);
+                      const avgF = rRow?.avgF;
+                      const avgS = rRow?.avgS;
+                      const finalScore = rRow?.finalScore;
+                      const isPassed = rRow?.isPassed ?? false;
 
                       return (
                         <tr key={siswa.id} className="hover:bg-slate-50/80 transition">
@@ -1449,24 +1498,58 @@ export const NilaiSiswa: React.FC = () => {
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={val !== undefined && val > 0 ? val : ''}
+                                  value={typeof val === 'number' && !isNaN(val) ? val : ''}
                                   placeholder="-"
-                                  onChange={(e) => handleUpdateGrade(siswa.id, col.id, e.target.value === '' ? 0 : Number(e.target.value))}
+                                  onChange={(e) => {
+                                    const raw = e.target.value.trim();
+                                    if (raw === '') {
+                                      handleUpdateGrade(siswa.id, col.id, undefined);
+                                    } else {
+                                      const n = Number(raw);
+                                      if (!isNaN(n)) {
+                                        handleUpdateGrade(siswa.id, col.id, n);
+                                      }
+                                    }
+                                  }}
                                   className="w-16 rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-center font-bold text-xs text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                                 />
                               </td>
                             );
                           })}
 
-                          {/* Average Column */}
-                          <td className="px-3 py-2 text-center border-r border-slate-100 bg-emerald-50/40">
-                            {studentAvg > 0 ? (
+                          {orderedCols.length === 0 && (
+                            <td className="px-3 py-2 text-center text-slate-400 border-r border-slate-100">
+                              -
+                            </td>
+                          )}
+
+                          {/* Rata-Rata Formatif Column */}
+                          <td className="px-2.5 py-2 text-center border-r border-slate-100 bg-emerald-50/40">
+                            {avgF !== undefined ? (
+                              <span className="text-xs font-bold text-emerald-800">{avgF}</span>
+                            ) : (
+                              <span className="text-slate-400 font-semibold text-xs">-</span>
+                            )}
+                          </td>
+
+                          {/* Rata-Rata Sumatif Column */}
+                          <td className="px-2.5 py-2 text-center border-r border-slate-100 bg-blue-50/40">
+                            {avgS !== undefined ? (
+                              <span className="text-xs font-bold text-blue-800">{avgS}</span>
+                            ) : (
+                              <span className="text-slate-400 font-semibold text-xs">-</span>
+                            )}
+                          </td>
+
+                          {/* Nilai Akhir Column */}
+                          <td className="px-3 py-2 text-center border-r border-slate-100 bg-amber-50/40">
+                            {finalScore !== undefined ? (
                               <span
                                 className={`text-sm font-extrabold ${
                                   isPassed ? 'text-emerald-700' : 'text-rose-600'
                                 }`}
                               >
-                                {studentAvg}
+                                {finalScore}
                               </span>
                             ) : (
                               <span className="text-slate-400 font-semibold text-xs">-</span>
@@ -1475,7 +1558,7 @@ export const NilaiSiswa: React.FC = () => {
 
                           {/* KKM Status */}
                           <td className="px-3 py-2 text-center">
-                            {studentAvg > 0 ? (
+                            {finalScore !== undefined ? (
                               <span
                                 className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
                                   isPassed
@@ -1483,7 +1566,7 @@ export const NilaiSiswa: React.FC = () => {
                                     : 'bg-rose-100 text-rose-700'
                                 }`}
                               >
-                                {isPassed ? 'Tuntas' : 'Bimbingan'}
+                                {isPassed ? 'Tuntas' : 'Remedial'}
                               </span>
                             ) : (
                               <span className="text-slate-400 text-xs">-</span>
@@ -1757,14 +1840,21 @@ export const NilaiSiswa: React.FC = () => {
                                       type="number"
                                       min={0}
                                       max={100}
-                                      value={rowScores[i] !== undefined && rowScores[i] > 0 ? rowScores[i] : (rowScores[i] === 0 ? '' : rowScores[i] ?? '')}
-                                      placeholder="0"
+                                      value={typeof rowScores[i] === 'number' && !isNaN(rowScores[i]) ? rowScores[i] : ''}
+                                      placeholder="-"
                                       onChange={(e) => {
-                                        const num = e.target.value === '' ? 0 : Number(e.target.value);
+                                        const raw = e.target.value.trim();
                                         setModalStudentScores((prev) => {
                                           const prevRow = prev[siswa.id] || [];
                                           const copy = [...prevRow];
-                                          copy[i] = Math.min(100, Math.max(0, num));
+                                          if (raw === '') {
+                                            delete copy[i];
+                                          } else {
+                                            const num = Number(raw);
+                                            if (!isNaN(num)) {
+                                              copy[i] = Math.min(100, Math.max(0, num));
+                                            }
+                                          }
                                           return {
                                             ...prev,
                                             [siswa.id]: copy
